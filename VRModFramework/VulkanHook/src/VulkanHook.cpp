@@ -1,7 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include "VulkanHook.hpp"
-#include "../../DX11Hook/include/MinHook.h"
+#include <MinHook.h>
 #include <iostream>
 
 // Minimal Vulkan typedefs so we don't need the full Vulkan SDK right now

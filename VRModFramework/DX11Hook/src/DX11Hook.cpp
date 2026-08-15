@@ -6,7 +6,7 @@
 #include "DX11Hook.hpp"
 #include "../../OpenXRLayer/include/OpenXRLayer.hpp"
 #include "../../InputTranslator/include/InputTranslator.hpp"
-#include "MinHook.h"
+#include <MinHook.h>
 #include <iostream>
 #include <fstream>
 #include <string>

@@ -2,7 +2,7 @@
 #include <windows.h>
 #include <GL/gl.h>
 #include "OpenGLHook.hpp"
-#include "../../DX11Hook/include/MinHook.h"
+#include <MinHook.h>
 #include <iostream>
 
 namespace VRMod {

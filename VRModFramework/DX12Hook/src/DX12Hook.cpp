@@ -3,7 +3,7 @@
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include "DX12Hook.hpp"
-#include "../../DX11Hook/include/MinHook.h"
+#include <MinHook.h>
 #include <iostream>
 
 namespace VRMod {
