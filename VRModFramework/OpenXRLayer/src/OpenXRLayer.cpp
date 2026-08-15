@@ -12,6 +12,7 @@
 #include <d3d12.h>
 #include <GL/gl.h>
 // #include <vulkan/vulkan.h>
+#include "../../DX11Hook/include/DX11Hook.hpp"
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include <iostream>
@@ -109,9 +110,13 @@ namespace OpenXRLayer {
     }
 
     bool Initialize() {
-        ID3D11Device* d3dDevice = VRMod::DX11Hook::GetDevice();
-        if (!d3dDevice) return false;
-        d3dDevice->GetImmediateContext(&g_d3dContext);
+        auto hook = VRMod::GraphicsManager::Get().GetActiveHook();
+        if (!hook) return false;
+
+        if (VRMod::GraphicsManager::Get().GetActiveApi() == VRMod::GraphicsApi::D3D11) {
+            ID3D11Device* d3dDevice = (ID3D11Device*)hook->GetDeviceContext();
+            if (d3dDevice) d3dDevice->GetImmediateContext(&g_d3dContext);
+        }
 
         XrInstanceCreateInfo createInfo{XR_TYPE_INSTANCE_CREATE_INFO};
         strcpy_s(createInfo.applicationInfo.applicationName, "VRModFramework");
@@ -223,7 +228,7 @@ namespace OpenXRLayer {
                 static bool s_invertY = false;
 
                 if (!s_configLoaded) {
-                    std::string configPath = VRMod::DX11Hook::GetConfigPath();
+                    std::string configPath = VRMod::DX11HookImpl::GetConfigPath();
                     char modeBuf[32];
                     GetPrivateProfileStringA("HeadTracking", "Mode", "Memory", modeBuf, 32, configPath.c_str());
                     if (_stricmp(modeBuf, "Mouse") == 0) s_isMouseMode = true;
@@ -304,7 +309,9 @@ namespace OpenXRLayer {
         // Read the controllers every frame
         PollInputs();
 
-        ID3D11Texture2D* shaderOutputTexture = VRMod::DX11Hook::GetStereoTexture();
+        auto hook = VRMod::GraphicsManager::Get().GetActiveHook();
+        if (!hook) return;
+        ID3D11Texture2D* shaderOutputTexture = (ID3D11Texture2D*)hook->GetStereoTexture();
         if (!shaderOutputTexture) return;
 
         XrFrameWaitInfo waitInfo{XR_TYPE_FRAME_WAIT_INFO};
