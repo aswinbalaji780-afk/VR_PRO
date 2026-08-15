@@ -1,7 +1,7 @@
 #define XR_USE_PLATFORM_WIN32
 #define XR_USE_GRAPHICS_API_D3D11
 #define XR_USE_GRAPHICS_API_D3D12
-#define XR_USE_GRAPHICS_API_OPENGL_WIN32
+#define XR_USE_GRAPHICS_API_OPENGL
 // #define XR_USE_GRAPHICS_API_VULKAN // Uncomment when Vulkan SDK is fully integrated
 
 #include "OpenXRLayer.hpp"
