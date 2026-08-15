@@ -1,0 +1,51 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1.1
+
+    - name: Build C++ VRModFramework (DLL & Injector)
+      run: |
+        cd VRModFramework
+        mkdir build
+        cd build
+        cmake .. -A x64
+        cmake --build . --config Release
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+
+    - name: Build React & Electron Launcher
+      run: |
+        cd UVRLauncher
+        npm install
+        npm run build
+      
+    - name: Upload Core Binaries
+      uses: actions/upload-artifact@v3
+      with:
+        name: UVR-Core-Binaries
+        path: |
+          VRModFramework/build/Release/VRModFramework.dll
+          VRModFramework/build/Release/injector.exe
+
+    - name: Upload Desktop App Installer
+      uses: actions/upload-artifact@v3
+      with:
+        name: UVRLauncher-App
+        path: UVRLauncher/dist/*.exe

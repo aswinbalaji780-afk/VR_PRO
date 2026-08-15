@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-obsidian: #030712;
+    --color-cyan: #00F5D4;
+    --color-violet: #7B2CBF;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-surface backdrop-blur-liquid border border-white/10 rounded-2xl shadow-xl transition-all duration-300;
+  }
+  
+  .glow-cyan {
+    box-shadow: 0 0 20px rgba(0, 245, 212, 0.4);
+  }
+  
+  .glow-violet {
+    box-shadow: 0 0 20px rgba(123, 44, 191, 0.4);
+  }
+
+  .text-glow {
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  }
+
+  /* Custom Scrollbar for sleek look */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #111 0%, #030712 100%);
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+}
