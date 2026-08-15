@@ -41,11 +41,14 @@ function createWindow() {
     win?.webContents.send('main-process-message', (new Date).toLocaleString());
   });
 
-  const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
-  
-  win.loadURL(devServerUrl);
-  // Open DevTools automatically to catch any future errors
-  win.webContents.openDevTools();
+  if (app.isPackaged) {
+    win.loadFile(path.join(process.env.DIST, 'index.html'));
+  } else {
+    const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
+    win.loadURL(devServerUrl);
+    // Open DevTools automatically to catch any future errors only in dev
+    win.webContents.openDevTools();
+  }
 }
 
 app.on('window-all-closed', () => {
