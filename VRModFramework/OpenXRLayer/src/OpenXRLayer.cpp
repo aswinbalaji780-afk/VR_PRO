@@ -1,3 +1,4 @@
+#define XR_USE_PLATFORM_WIN32
 #define XR_USE_GRAPHICS_API_D3D11
 #define XR_USE_GRAPHICS_API_D3D12
 #define XR_USE_GRAPHICS_API_OPENGL_WIN32
@@ -136,8 +137,7 @@ namespace OpenXRLayer {
         XrGraphicsBindingD3D12KHR d3d12Binding{XR_TYPE_GRAPHICS_BINDING_D3D12_KHR};
         XrGraphicsBindingOpenGLWin32KHR glBinding{XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR};
 
-        auto api = GraphicsManager::Get().GetActiveApi();
-        auto hook = GraphicsManager::Get().GetActiveHook();
+        auto api = VRMod::GraphicsManager::Get().GetActiveApi();
 
         if (api == GraphicsApi::D3D11) {
             d3d11Binding.device = (ID3D11Device*)hook->GetDeviceContext();
