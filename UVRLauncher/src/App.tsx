@@ -45,7 +45,8 @@ export default function App() {
       
       try {
         // Execute real backend injection via Electron
-        const targetExe = games.length > 0 ? games[0].exeName : 'Cyberpunk2077.exe';
+        const activeGame = games.length > 0 ? games[0] : null;
+        const targetExe = activeGame ? activeGame.exeName : 'Cyberpunk2077.exe';
         const response = await window.electronAPI.launchInjector(targetExe);
         console.log('Backend response:', response);
         setXrState('TRACKING_LOCKED');
@@ -112,7 +113,7 @@ export default function App() {
                    xrState === 'INITIALIZING' ? 'INITIALIZING XR...' :
                    xrState === 'TRACKING_LOCKED' ? 'LOCKING TRACKING...' :
                    xrState === 'VR_READY' ? 'SESSION ACTIVE' :
-                   'LAUNCH IN VR'}
+                   games.length > 0 ? `LAUNCH ${games[0].title.toUpperCase()}` : 'LAUNCH IN VR'}
                 </NXButton>
                 <NXButton variant="secondary" onClick={() => setCurrentView('profiles')}>CONFIGURE PROFILE</NXButton>
               </div>

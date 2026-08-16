@@ -17,6 +17,7 @@ set(INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/OpenXRLayer/include
     ${CMAKE_CURRENT_SOURCE_DIR}/InputTranslator/include
     ${CMAKE_CURRENT_SOURCE_DIR}/MemoryManager/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/Proxy
 )
 
 if(APPLE)
@@ -33,6 +34,7 @@ set(SOURCES
     OpenXRLayer/src/OpenXRLayer.cpp
     InputTranslator/src/InputTranslator.cpp
     MemoryManager/src/MemoryManager.cpp
+    Proxy/DXGIWrapper.cpp
 )
 
 if(APPLE)
@@ -75,12 +77,8 @@ target_link_libraries(VRModFramework PRIVATE
     openxr_loader
 )
 
-# Set output name
+# Set output name to dxgi to act as a proxy DLL
 set_target_properties(VRModFramework PROPERTIES
-    OUTPUT_NAME "VRModFramework"
+    OUTPUT_NAME "dxgi"
     LINKER_LANGUAGE CXX
 )
-
-# Add Custom Injector
-add_executable(injector ../injector.cpp)
-target_link_libraries(injector PRIVATE kernel32 user32)

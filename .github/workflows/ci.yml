@@ -48,4 +48,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: UVRLauncher-App
-        path: UVRLauncher/dist/*.exe
+        path: UVRLauncher/release/*.exe

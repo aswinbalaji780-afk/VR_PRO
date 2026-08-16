@@ -43,6 +43,7 @@ function createWindow() {
 
   if (app.isPackaged) {
     win.loadFile(path.join(process.env.DIST, 'index.html'));
+    win.webContents.openDevTools(); // Force devtools to open in production
   } else {
     const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
     win.loadURL(devServerUrl);
@@ -76,51 +77,55 @@ app.whenReady().then(() => {
     
     const filePath = filePaths[0];
     const exeName = path.basename(filePath);
+    const dirPath = path.dirname(filePath);
     // Remove .exe extension for title and format nicely
     const title = exeName.replace('.exe', '').replace(/[-_]/g, ' ');
 
-    return { title, exeName };
+    return { title, exeName, dirPath };
   });
 
-  ipcMain.handle('launch-injector', async (event, exeName: string) => {
+  ipcMain.handle('launch-injector', async (event, exeName: string, dirPath?: string) => {
     return new Promise((resolve, reject) => {
-      // 1. Verify process is running
-      exec(`tasklist /NH /FI "IMAGENAME eq ${exeName}"`, (err, stdout) => {
-        if (stdout.toLowerCase().includes('info: no tasks')) {
-          console.error(`Game ${exeName} is not running.`);
-          reject(new Error(`Game ${exeName} is not running! Please start the game first.`));
-          return;
+      if (!dirPath) {
+        reject(new Error("Cannot install mod: Game directory path is missing. Please re-add the game to your library."));
+        return;
+      }
+      
+      // 1. Update vr_config.ini
+      const iniPath = path.join(__dirname, '../../VRModFramework/vr_config.ini');
+      try {
+        if (fs.existsSync(iniPath)) {
+          let iniContent = fs.readFileSync(iniPath, 'utf8');
+          const processNameNoExt = exeName.replace('.exe', '');
+          iniContent = iniContent.replace(/^ProcessName=.*$/m, `ProcessName=${processNameNoExt}`);
+          fs.writeFileSync(iniPath, iniContent, 'utf8');
+        } else {
+          console.warn('vr_config.ini not found, skipping config update.');
         }
+      } catch (e) {
+        console.error('Failed to update vr_config.ini', e);
+      }
 
-        // 2. Process is running, update vr_config.ini
-        const iniPath = path.join(__dirname, '../../VRModFramework/vr_config.ini');
+        // 3. Install Proxy DLL
+        // We find dxgi.dll in our own build folder and copy it to the game directory
+        // In production, the dxgi.dll should be packed next to the exe or in a resources folder.
+        // For development, we look at the VRModFramework build folder.
+        const sourceDll = app.isPackaged 
+          ? path.join(process.resourcesPath, 'dxgi.dll') 
+          : path.join(__dirname, '../../VRModFramework/build/Release/dxgi.dll');
+        
+        const targetDll = path.join(dirPath, 'dxgi.dll');
+
         try {
-          if (fs.existsSync(iniPath)) {
-            let iniContent = fs.readFileSync(iniPath, 'utf8');
-            // Remove the .exe extension for the config if present, though either works.
-            // Actually, the bat file script uses tasklist findstr, so providing just the name without .exe works best for the bat script logic, or with it.
-            // Let's replace the whole ProcessName line
-            const processNameNoExt = exeName.replace('.exe', '');
-            iniContent = iniContent.replace(/^ProcessName=.*$/m, `ProcessName=${processNameNoExt}`);
-            fs.writeFileSync(iniPath, iniContent, 'utf8');
-          } else {
-            console.warn('vr_config.ini not found, skipping config update.');
+          if (!fs.existsSync(sourceDll)) {
+             throw new Error(`Mod DLL not found at: ${sourceDll}. Please ensure you have downloaded and placed it there.`);
           }
-        } catch (e) {
-          console.error('Failed to update vr_config.ini', e);
+          fs.copyFileSync(sourceDll, targetDll);
+          resolve(`Successfully installed VR Mod to ${dirPath}! Start the game normally to play in VR.`);
+        } catch (error: any) {
+          console.error('Copy error:', error);
+          reject(new Error(`Failed to copy VR mod to game folder: ${error.message}`));
         }
-
-        // 3. Launch Injector
-        const batPath = path.join(__dirname, '../../Launch_VR.bat');
-        exec(`"${batPath}"`, (error, stdout, stderr) => {
-          if (error) {
-            console.error(`Injection error: ${error.message}`);
-            reject(new Error(`Injection error: ${error.message}`));
-            return;
-          }
-          resolve(stdout);
-        });
-      });
     });
   });
 

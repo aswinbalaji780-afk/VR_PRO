@@ -5,7 +5,7 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && electron-builder",
+    "build": "vite build && electron-builder",
     "serve": "vite preview"
   },
   "dependencies": {
@@ -26,5 +26,15 @@
     "vite": "^7.0.0",
     "vite-plugin-electron": "^0.15.6",
     "vite-plugin-electron-renderer": "^0.14.7"
+  },
+  "build": {
+    "appId": "com.nexusxr.uvrlauncher",
+    "productName": "UVR Launcher",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis"
+    }
   }
 }
