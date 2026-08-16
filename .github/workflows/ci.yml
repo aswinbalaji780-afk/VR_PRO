@@ -41,8 +41,7 @@ jobs:
         npm install
         
         # Dynamically bump version using GitHub Run Number for auto-updates
-        $version = "1.0.${{ github.run_number }}"
-        (Get-Content package.json) -replace '"version": "1.0.0"', `"version": "$version"` | Set-Content package.json
+        node -e "const fs = require('fs'); const p = JSON.parse(fs.readFileSync('package.json')); p.version = '1.0.${{ github.run_number }}'; fs.writeFileSync('package.json', JSON.stringify(p, null, 2));"
         
         npx vite build
         npx electron-builder --win --publish always
