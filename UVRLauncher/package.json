@@ -41,7 +41,8 @@
       {
         "provider": "github",
         "owner": "aswinbalaji780-afk",
-        "repo": "VR_PRO"
+        "repo": "VR_PRO",
+        "releaseType": "release"
       }
     ],
     "extraResources": [
