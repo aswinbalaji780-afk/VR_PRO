@@ -12,33 +12,36 @@ namespace VRMod {
         return instance;
     }
 
-    bool GraphicsManager::Initialize(HMODULE hModule) {
-        // Auto-detect graphics API by checking loaded modules
-        // Note: Some games load multiple APIs. The order here determines priority.
+    DWORD WINAPI WatchdogThread(LPVOID lpParam) {
+        GraphicsManager* manager = (GraphicsManager*)lpParam;
         
-        // Let's default to DX11 for testing, but in a real implementation we would
-        // check GetModuleHandleA("d3d11.dll") etc.
-        
+        while (true) {
 #ifdef _WIN32
-        if (GetModuleHandleA("d3d11.dll")) {
-            m_activeApi = GraphicsApi::D3D11;
-            m_activeHook = std::make_unique<DX11HookImpl>();
-        } else {
-            return false;
-        }
+            if (GetModuleHandleA("d3d11.dll")) {
+                manager->m_activeApi = GraphicsApi::D3D11;
+                manager->m_activeHook = std::make_unique<DX11HookImpl>();
+                break;
+            }
 #elif defined(__APPLE__)
-        // macOS always uses Metal
-        m_activeApi = GraphicsApi::Metal;
-        // m_activeHook = std::make_unique<MetalHookImpl>(); // Will be included in MetalHook.mm
-#else
-        return false;
+            manager->m_activeApi = GraphicsApi::Metal;
+            // manager->m_activeHook = std::make_unique<MetalHookImpl>();
+            break;
 #endif
-
-        if (m_activeHook) {
-            return m_activeHook->Initialize(hModule);
+            Sleep(100);
         }
 
-        return false;
+        if (manager->m_activeHook) {
+            manager->m_activeHook->Initialize(manager->m_hModule);
+        }
+        return 0;
+    }
+
+    bool GraphicsManager::Initialize(HMODULE hModule) {
+        m_hModule = hModule;
+        // Spawn a watchdog thread because Proxy DLLs load very early,
+        // often before the game loads d3d11.dll!
+        CreateThread(nullptr, 0, WatchdogThread, this, 0, nullptr);
+        return true;
     }
 
     void GraphicsManager::Shutdown() {

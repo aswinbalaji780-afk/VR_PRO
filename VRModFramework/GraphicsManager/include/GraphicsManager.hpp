@@ -33,6 +33,9 @@ namespace VRMod {
 
         std::unique_ptr<IGraphicsHook> m_activeHook;
         GraphicsApi m_activeApi = GraphicsApi::Unknown;
+        HMODULE m_hModule = nullptr;
+
+        friend DWORD WINAPI WatchdogThread(LPVOID lpParam);
     };
 
 } // namespace VRMod
