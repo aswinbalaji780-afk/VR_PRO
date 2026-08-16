@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import { autoUpdater } from 'electron-updater';
 import { exec } from 'node:child_process';
 
 // Suppress the CSP warning in development
@@ -65,6 +66,13 @@ app.on('activate', () => {
 });
 
 app.whenReady().then(() => {
+  createWindow();
+
+  // Check for updates (only works in production/packaged app)
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdatesAndNotify();
+  }
+
   ipcMain.handle('select-game', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: 'Select Game Executable',
@@ -156,6 +164,4 @@ app.whenReady().then(() => {
       }
     });
   });
-
-  createWindow();
 });

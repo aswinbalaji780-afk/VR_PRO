@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
     
     steps:
     - name: Checkout Code
@@ -32,10 +34,18 @@ jobs:
         node-version: 20
 
     - name: Build React & Electron Launcher
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         cd UVRLauncher
         npm install
-        npm run build
+        
+        # Dynamically bump version using GitHub Run Number for auto-updates
+        $version = "1.0.${{ github.run_number }}"
+        (Get-Content package.json) -replace '"version": "1.0.0"', `"version": "$version"` | Set-Content package.json
+        
+        npx vite build
+        npx electron-builder --win --publish always
       
     - name: Upload Desktop App Installer
       uses: actions/upload-artifact@v4

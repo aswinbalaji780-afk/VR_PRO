@@ -9,6 +9,7 @@
     "serve": "vite preview"
   },
   "dependencies": {
+    "electron-updater": "^6.1.8",
     "lucide-react": "^0.263.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
@@ -36,6 +37,13 @@
     "win": {
       "target": "nsis"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "aswinbalaji780-afk",
+        "repo": "VR_PRO"
+      }
+    ],
     "extraResources": [
       {
         "from": "../VRModFramework/build/Release/dxgi.dll",
