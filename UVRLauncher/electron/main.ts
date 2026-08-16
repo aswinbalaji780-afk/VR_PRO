@@ -122,16 +122,13 @@ app.whenReady().then(() => {
         // 3. Install Proxy DLL & Dependencies
         // In production, the files are in process.resourcesPath.
         const sourceDxgi = path.join(process.resourcesPath, 'dxgi.dll');
-        const sourceOpenXR = path.join(process.resourcesPath, 'openxr_loader.dll');
         const sourceIni = path.join(process.resourcesPath, 'vr_config.ini');
         
         try {
           if (!fs.existsSync(sourceDxgi)) throw new Error(`Mod DLL not found at: ${sourceDxgi}`);
-          if (!fs.existsSync(sourceOpenXR)) throw new Error(`OpenXR Loader not found at: ${sourceOpenXR}`);
           if (!fs.existsSync(sourceIni)) throw new Error(`VR Config not found at: ${sourceIni}`);
 
           fs.copyFileSync(sourceDxgi, path.join(dirPath, 'dxgi.dll'));
-          fs.copyFileSync(sourceOpenXR, path.join(dirPath, 'openxr_loader.dll'));
           fs.copyFileSync(sourceIni, path.join(dirPath, 'vr_config.ini'));
 
           resolve(`Successfully installed VR Mod to ${dirPath}! Start the game normally to play in VR.`);
@@ -150,11 +147,9 @@ app.whenReady().then(() => {
       }
       try {
         const targetDxgi = path.join(dirPath, 'dxgi.dll');
-        const targetOpenXR = path.join(dirPath, 'openxr_loader.dll');
         const targetIni = path.join(dirPath, 'vr_config.ini');
 
         if (fs.existsSync(targetDxgi)) fs.unlinkSync(targetDxgi);
-        if (fs.existsSync(targetOpenXR)) fs.unlinkSync(targetOpenXR);
         if (fs.existsSync(targetIni)) fs.unlinkSync(targetIni);
 
         resolve("Successfully uninstalled VR Mod!");

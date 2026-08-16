@@ -26,7 +26,6 @@ jobs:
         cd build
         cmake .. -A x64
         cmake --build . --config Release
-        Get-ChildItem -Path . -Recurse -Filter openxr_loader.dll | Copy-Item -Destination .\Release\openxr_loader.dll -Force
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
