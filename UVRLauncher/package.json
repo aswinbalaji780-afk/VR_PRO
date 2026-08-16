@@ -40,6 +40,14 @@
       {
         "from": "../VRModFramework/build/Release/dxgi.dll",
         "to": "dxgi.dll"
+      },
+      {
+        "from": "../VRModFramework/build/Release/openxr_loader.dll",
+        "to": "openxr_loader.dll"
+      },
+      {
+        "from": "../VRModFramework/vr_config.ini",
+        "to": "vr_config.ini"
       }
     ]
   }

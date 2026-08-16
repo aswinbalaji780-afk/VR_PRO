@@ -29,19 +29,31 @@ export const MyGames: React.FC<MyGamesProps> = ({ setCurrentView, games, setGame
     }
   };
 
-  const handleStop = (id: number) => {
+  const handleStop = async (id: number, dirPath: string) => {
     const isConfirmed = window.confirm(
-      "WARNING: Uninstalling only resets the launcher's state.\n\n" +
-      "To fully uninstall the VR Mod, you must manually delete dxgi.dll from the game folder!"
+      "Are you sure you want to uninstall the VR Mod from this game?"
     );
     
-    if (isConfirmed) {
-      setGames(prev => prev.map(g => g.id === id ? { ...g, status: 'Ready' } : g));
+    if (isConfirmed && dirPath) {
+      try {
+        await window.electronAPI.uninstallInjector(dirPath);
+        setGames(prev => prev.map(g => g.id === id ? { ...g, status: 'Ready' } : g));
+      } catch (e: any) {
+        console.error('Uninstall failed:', e);
+        alert(e.message || 'Uninstall failed');
+      }
     }
   };
 
-  const handleDeleteGame = (id: number) => {
+  const handleDeleteGame = async (id: number, dirPath: string, status: string) => {
     if (window.confirm('Are you sure you want to remove this game from your library?')) {
+      if (status === 'Installed' && dirPath) {
+        try {
+          await window.electronAPI.uninstallInjector(dirPath);
+        } catch(e) {
+          console.error("Failed to uninstall while deleting:", e);
+        }
+      }
       setGames(prev => prev.filter(g => g.id !== id));
     }
   };
@@ -95,7 +107,7 @@ export const MyGames: React.FC<MyGamesProps> = ({ setCurrentView, games, setGame
                   </span>
                 </div>
                 <button 
-                  onClick={(e) => { e.stopPropagation(); handleDeleteGame(game.id); }}
+                  onClick={(e) => { e.stopPropagation(); handleDeleteGame(game.id, game.dirPath, game.status); }}
                   className="bg-black/50 backdrop-blur p-1.5 rounded text-gray-400 hover:text-red-400 border border-white/10 hover:border-red-500/50 transition-colors"
                   title="Remove Game"
                 >
@@ -110,7 +122,7 @@ export const MyGames: React.FC<MyGamesProps> = ({ setCurrentView, games, setGame
                 <button 
                   onClick={(e) => { 
                     e.stopPropagation(); 
-                    if (game.status === 'Installed') handleStop(game.id);
+                    if (game.status === 'Installed') handleStop(game.id, game.dirPath);
                     else handleInject(game.id, game.exeName, game.dirPath); 
                   }}
                   disabled={game.status === 'Installing...'}

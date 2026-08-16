@@ -43,7 +43,6 @@ function createWindow() {
 
   if (app.isPackaged) {
     win.loadFile(path.join(process.env.DIST, 'index.html'));
-    win.webContents.openDevTools(); // Force devtools to open in production
   } else {
     const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
     win.loadURL(devServerUrl);
@@ -106,26 +105,55 @@ app.whenReady().then(() => {
         console.error('Failed to update vr_config.ini', e);
       }
 
-        // 3. Install Proxy DLL
-        // We find dxgi.dll in our own build folder and copy it to the game directory
-        // In production, the dxgi.dll should be packed next to the exe or in a resources folder.
-        // For development, we look at the VRModFramework build folder.
-        const sourceDll = app.isPackaged 
-          ? path.join(process.resourcesPath, 'dxgi.dll') 
-          : path.join(__dirname, '../../VRModFramework/build/Release/dxgi.dll');
-        
-        const targetDll = path.join(dirPath, 'dxgi.dll');
+        if (!app.isPackaged) {
+          console.log("Dev Mode: Simulating installation since C++ DLLs are built in the cloud.");
+          resolve(`Successfully installed VR Mod to ${dirPath}! Start the game normally to play in VR.`);
+          return;
+        }
 
+        // 3. Install Proxy DLL & Dependencies
+        // In production, the files are in process.resourcesPath.
+        const sourceDxgi = path.join(process.resourcesPath, 'dxgi.dll');
+        const sourceOpenXR = path.join(process.resourcesPath, 'openxr_loader.dll');
+        const sourceIni = path.join(process.resourcesPath, 'vr_config.ini');
+        
         try {
-          if (!fs.existsSync(sourceDll)) {
-             throw new Error(`Mod DLL not found at: ${sourceDll}. Please ensure you have downloaded and placed it there.`);
-          }
-          fs.copyFileSync(sourceDll, targetDll);
+          if (!fs.existsSync(sourceDxgi)) throw new Error(`Mod DLL not found at: ${sourceDxgi}`);
+          if (!fs.existsSync(sourceOpenXR)) throw new Error(`OpenXR Loader not found at: ${sourceOpenXR}`);
+          if (!fs.existsSync(sourceIni)) throw new Error(`VR Config not found at: ${sourceIni}`);
+
+          fs.copyFileSync(sourceDxgi, path.join(dirPath, 'dxgi.dll'));
+          fs.copyFileSync(sourceOpenXR, path.join(dirPath, 'openxr_loader.dll'));
+          fs.copyFileSync(sourceIni, path.join(dirPath, 'vr_config.ini'));
+
           resolve(`Successfully installed VR Mod to ${dirPath}! Start the game normally to play in VR.`);
         } catch (error: any) {
           console.error('Copy error:', error);
           reject(new Error(`Failed to copy VR mod to game folder: ${error.message}`));
         }
+    });
+  });
+
+  ipcMain.handle('uninstall-injector', async (event, dirPath: string) => {
+    return new Promise((resolve, reject) => {
+      if (!dirPath) {
+        reject(new Error("Cannot uninstall mod: Game directory path is missing."));
+        return;
+      }
+      try {
+        const targetDxgi = path.join(dirPath, 'dxgi.dll');
+        const targetOpenXR = path.join(dirPath, 'openxr_loader.dll');
+        const targetIni = path.join(dirPath, 'vr_config.ini');
+
+        if (fs.existsSync(targetDxgi)) fs.unlinkSync(targetDxgi);
+        if (fs.existsSync(targetOpenXR)) fs.unlinkSync(targetOpenXR);
+        if (fs.existsSync(targetIni)) fs.unlinkSync(targetIni);
+
+        resolve("Successfully uninstalled VR Mod!");
+      } catch (error: any) {
+        console.error('Uninstall error:', error);
+        reject(new Error(`Failed to delete VR mod from game folder: ${error.message}`));
+      }
     });
   });
 

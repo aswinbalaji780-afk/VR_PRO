@@ -82,3 +82,10 @@ set_target_properties(VRModFramework PROPERTIES
     OUTPUT_NAME "dxgi"
     LINKER_LANGUAGE CXX
 )
+
+# Copy the openxr_loader.dll next to our dxgi.dll so electron-builder can find it
+add_custom_command(TARGET VRModFramework POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:openxr_loader>
+    $<TARGET_FILE_DIR:VRModFramework>
+)
