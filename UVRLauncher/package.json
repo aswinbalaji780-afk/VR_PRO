@@ -35,6 +35,12 @@
     },
     "win": {
       "target": "nsis"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "../VRModFramework/build/Release/dxgi.dll",
+        "to": "dxgi.dll"
+      }
+    ]
   }
 }

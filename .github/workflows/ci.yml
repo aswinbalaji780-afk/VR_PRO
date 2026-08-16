@@ -36,14 +36,6 @@ jobs:
         npm install
         npm run build
       
-    - name: Upload Core Binaries
-      uses: actions/upload-artifact@v4
-      with:
-        name: UVR-Core-Binaries
-        path: |
-          VRModFramework/build/Release/VRModFramework.dll
-          VRModFramework/build/Release/injector.exe
-
     - name: Upload Desktop App Installer
       uses: actions/upload-artifact@v4
       with:
