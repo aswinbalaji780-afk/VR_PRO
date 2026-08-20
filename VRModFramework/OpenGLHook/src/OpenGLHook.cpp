@@ -56,4 +56,8 @@ namespace VRMod {
         return &g_glContext;
     }
 
+    void OpenGLHookImpl::CopyToOpenXRSwapchain(void* destTexture) {
+        // Implementation pending
+    }
+
 } // namespace VRMod

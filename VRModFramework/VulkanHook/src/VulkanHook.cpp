@@ -97,4 +97,8 @@ namespace VRMod {
         return &g_vkContext;
     }
 
+    void VulkanHookImpl::CopyToOpenXRSwapchain(void* destTexture) {
+        // Implementation pending
+    }
+
 } // namespace VRMod

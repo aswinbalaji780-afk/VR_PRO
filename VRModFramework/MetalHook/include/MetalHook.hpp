@@ -19,6 +19,7 @@ namespace VRMod {
 
         void* GetStereoTexture() override;
         void* GetDeviceContext() override;
+        void CopyToOpenXRSwapchain(void* destTexture) override;
     };
 
 } // namespace VRMod

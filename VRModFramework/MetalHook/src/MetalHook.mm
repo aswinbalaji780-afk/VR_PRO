@@ -66,5 +66,9 @@ namespace VRMod {
         return &g_metalContext;
     }
 
+    void MetalHookImpl::CopyToOpenXRSwapchain(void* destTexture) {
+        // Implementation pending
+    }
+
 } // namespace VRMod
 #endif // __APPLE__
