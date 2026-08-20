@@ -334,3 +334,5 @@ namespace VRMod {
             RenderSplitScreen(g_stereoTexture, (ID3D12Resource*)destTexture);
         }
     }
+
+} // namespace VRMod

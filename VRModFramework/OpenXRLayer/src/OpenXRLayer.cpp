@@ -236,7 +236,7 @@ namespace OpenXRLayer {
         XrSwapchainCreateInfo swapchainCreateInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
         swapchainCreateInfo.arraySize = 1;
         swapchainCreateInfo.format = formats[0]; // Just use the first supported format
-        swapchainCreateInfo.width = 1440; // Default VR resolution per eye
+        swapchainCreateInfo.width = 2880; // Total width for Side-By-Side (1440 per eye)
         swapchainCreateInfo.height = 1600;
         swapchainCreateInfo.mipCount = 1;
         swapchainCreateInfo.faceCount = 1;
@@ -466,7 +466,40 @@ namespace OpenXRLayer {
             XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             xrReleaseSwapchainImage(g_swapchain, &releaseInfo);
 
+            // Fetch the views for each eye
+            XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
+            viewLocateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+            viewLocateInfo.displayTime = frameState.predictedDisplayTime;
+            viewLocateInfo.space = g_appSpace;
+
+            XrViewState viewState{XR_TYPE_VIEW_STATE};
+            uint32_t viewCount = 0;
+            xrLocateViews(g_session, &viewLocateInfo, &viewState, 0, &viewCount, nullptr);
+            
+            std::vector<XrView> views(viewCount, {XR_TYPE_VIEW});
+            xrLocateViews(g_session, &viewLocateInfo, &viewState, viewCount, &viewCount, views.data());
+
+            // Build the projection views (Left and Right halves of the swapchain)
+            std::vector<XrCompositionLayerProjectionView> projectionViews(viewCount, {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW});
+            for (uint32_t i = 0; i < viewCount; ++i) {
+                projectionViews[i].pose = views[i].pose;
+                projectionViews[i].fov = views[i].fov;
+                projectionViews[i].subImage.swapchain = g_swapchain;
+                
+                // Assuming Side-by-Side (SBS) split screen on a single 2880x1600 swapchain texture
+                projectionViews[i].subImage.imageRect.offset.x = (i == 0) ? 0 : 1440;
+                projectionViews[i].subImage.imageRect.offset.y = 0;
+                projectionViews[i].subImage.imageRect.extent.width = 1440;
+                projectionViews[i].subImage.imageRect.extent.height = 1600;
+                projectionViews[i].subImage.imageArrayIndex = 0;
+            }
+
             projectionLayer.space = g_appSpace;
+            projectionLayer.viewCount = viewCount;
+            // The pointer needs to stay valid until xrEndFrame. 
+            // We can safely pass it because xrEndFrame is synchronous in this scope.
+            projectionLayer.views = projectionViews.data();
+
             layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader*>(&projectionLayer));
         }
 

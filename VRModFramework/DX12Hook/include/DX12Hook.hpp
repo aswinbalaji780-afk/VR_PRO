@@ -1,6 +1,11 @@
 #ifndef VRMOD_DX12HOOK_HPP
 #define VRMOD_DX12HOOK_HPP
 
+#ifdef _WIN32
+#include <windows.h>
+#include <d3d12.h>
+#include <dxgi1_4.h>
+#endif
 #include "../../GraphicsManager/include/IGraphicsHook.hpp"
 
 namespace VRMod {

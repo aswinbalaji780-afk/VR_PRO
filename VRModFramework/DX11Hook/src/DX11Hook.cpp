@@ -330,12 +330,12 @@ namespace VRMod {
     }
 
     void* DX11HookImpl::GetDeviceContext() {
-        return g_pDevice; // For OpenXR session creation
+        return g_device; // For OpenXR session creation
     }
 
     void DX11HookImpl::CopyToOpenXRSwapchain(void* destTexture) {
-        if (g_pContext && g_stereoTexture && destTexture) {
-            g_pContext->CopyResource((ID3D11Resource*)destTexture, g_stereoTexture);
+        if (g_context && g_stereoTexture && destTexture) {
+            g_context->CopyResource((ID3D11Resource*)destTexture, g_stereoTexture);
         }
     }
 
