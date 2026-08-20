@@ -20,6 +20,7 @@ namespace VRMod {
         
         void* GetStereoTexture() override;
         void* GetDeviceContext() override;
+        void CopyToOpenXRSwapchain(void* destTexture) override;
 
         // Legacy accessors
         static std::string GetConfigPath();

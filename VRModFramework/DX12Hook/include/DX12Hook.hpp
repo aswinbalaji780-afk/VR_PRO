@@ -17,6 +17,11 @@ namespace VRMod {
 
         void* GetStereoTexture() override;
         void* GetDeviceContext() override;
+        void CopyToOpenXRSwapchain(void* destTexture) override;
+
+    private:
+        bool InitializeRendererDX12(ID3D12Device* device);
+        void RenderSplitScreen(ID3D12Resource* pBackBuffer, ID3D12Resource* pDestTexture);
     };
 
 } // namespace VRMod

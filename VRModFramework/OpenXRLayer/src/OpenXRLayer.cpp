@@ -453,13 +453,9 @@ namespace OpenXRLayer {
             auto api = VRMod::GraphicsManager::Get().GetActiveApi();
 #ifdef _WIN32
             if (api == VRMod::GraphicsApi::D3D11) {
-                g_d3dContext->CopyResource(g_swapchainImages[imageIndex].texture, shaderOutputTexture);
+                hook->CopyToOpenXRSwapchain(g_swapchainImages[imageIndex].texture);
             } else if (api == VRMod::GraphicsApi::D3D12) {
-                ID3D12CommandQueue* queue = (ID3D12CommandQueue*)hook->GetDeviceContext();
-                ID3D12Resource* dx12StereoTexture = (ID3D12Resource*)shaderOutputTexture;
-                // Proper resource copy via command list requires allocators and lists.
-                // For a minimal working hook, we rely on DX12Hook.cpp to handle this later.
-                // This will be implemented in DX12Hook.cpp natively.
+                hook->CopyToOpenXRSwapchain(g_swapchainImagesD3D12[imageIndex].texture);
             }
 #elif defined(__APPLE__)
             if (api == VRMod::GraphicsApi::Metal) {

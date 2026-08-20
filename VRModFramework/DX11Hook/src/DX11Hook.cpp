@@ -325,8 +325,20 @@ namespace VRMod {
         return true;
     }
     void DX11HookImpl::Shutdown() { MH_DisableHook(MH_ALL_HOOKS); MH_Uninitialize(); VRMod::OpenXRLayer::Shutdown(); }
-    void* DX11HookImpl::GetStereoTexture() { return g_stereoTexture; }
-    void* DX11HookImpl::GetDeviceContext() { return g_device; }
+    void* DX11HookImpl::GetStereoTexture() {
+        return g_stereoTexture;
+    }
+
+    void* DX11HookImpl::GetDeviceContext() {
+        return g_pDevice; // For OpenXR session creation
+    }
+
+    void DX11HookImpl::CopyToOpenXRSwapchain(void* destTexture) {
+        if (g_pContext && g_stereoTexture && destTexture) {
+            g_pContext->CopyResource((ID3D11Resource*)destTexture, g_stereoTexture);
+        }
+    }
+
 
 } // namespace VRMod
 

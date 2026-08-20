@@ -5,11 +5,29 @@
 #include "DX12Hook.hpp"
 #include <MinHook.h>
 #include <iostream>
+#include <d3dcompiler.h>
+
+#pragma comment(lib, "d3d12.lib")
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "d3dcompiler.lib")
 
 namespace VRMod {
 
+    static ID3D12Device* g_device = nullptr;
     static ID3D12CommandQueue* g_commandQueue = nullptr;
     static ID3D12Resource* g_stereoTexture = nullptr;
+
+    static ID3D12CommandAllocator* g_commandAllocator = nullptr;
+    static ID3D12GraphicsCommandList* g_commandList = nullptr;
+    static ID3D12RootSignature* g_rootSignature = nullptr;
+    static ID3D12PipelineState* g_pso = nullptr;
+    static ID3D12DescriptorHeap* g_srvHeap = nullptr;
+    static ID3D12DescriptorHeap* g_rtvHeap = nullptr;
+    
+    static ID3D12Fence* g_fence = nullptr;
+    static UINT64 g_fenceValue = 0;
+    static HANDLE g_fenceEvent = nullptr;
+    static bool g_rendererInitialized = false;
 
     typedef HRESULT(WINAPI* PFN_Present)(IDXGISwapChain*, UINT, UINT);
     typedef HRESULT(WINAPI* PFN_Present1)(IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
@@ -27,14 +45,7 @@ namespace VRMod {
         
         ID3D12Resource* pBackBuffer = nullptr;
         if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D12Resource), (void**)&pBackBuffer))) {
-            g_stereoTexture = pBackBuffer;
-            
-            // In a real implementation, we would use a CommandList to copy this backbuffer 
-            // into a separate stereo texture and run a compute shader for distortion.
-            // For now, we just pass the raw game buffer to OpenXR to prove the pipeline.
-
-            // Let OpenXR consume the frame
-            // VRMod::OpenXRLayer::RenderFrame(); 
+            g_stereoTexture = pBackBuffer; // Fallback, updated later by OpenXR copy
             pBackBuffer->Release();
         }
     }
@@ -129,4 +140,197 @@ namespace VRMod {
         return g_commandQueue; 
     }
 
-} // namespace VRMod
+    bool DX12HookImpl::InitializeRendererDX12(ID3D12Device* device) {
+        g_device = device;
+        if (FAILED(g_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator), (void**)&g_commandAllocator))) return false;
+        if (FAILED(g_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, g_commandAllocator, nullptr, __uuidof(ID3D12GraphicsCommandList), (void**)&g_commandList))) return false;
+        g_commandList->Close();
+
+        if (FAILED(g_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void**)&g_fence))) return false;
+        g_fenceValue = 1;
+        g_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
+        // Create Descriptor Heaps
+        D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
+        srvHeapDesc.NumDescriptors = 1;
+        srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        g_device->CreateDescriptorHeap(&srvHeapDesc, __uuidof(ID3D12DescriptorHeap), (void**)&g_srvHeap);
+
+        D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
+        rtvHeapDesc.NumDescriptors = 1;
+        rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        g_device->CreateDescriptorHeap(&rtvHeapDesc, __uuidof(ID3D12DescriptorHeap), (void**)&g_rtvHeap);
+
+        // Create Root Signature
+        D3D12_DESCRIPTOR_RANGE range = {};
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        range.NumDescriptors = 1;
+        range.BaseShaderRegister = 0;
+        range.RegisterSpace = 0;
+        range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+        D3D12_ROOT_PARAMETER param = {};
+        param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        param.DescriptorTable.NumDescriptorRanges = 1;
+        param.DescriptorTable.pDescriptorRanges = &range;
+        param.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        D3D12_STATIC_SAMPLER_DESC sampler = {};
+        sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        sampler.MaxAnisotropy = 1;
+        sampler.ShaderRegister = 0;
+        sampler.RegisterSpace = 0;
+        sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+        D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {};
+        rootSigDesc.NumParameters = 1;
+        rootSigDesc.pParameters = &param;
+        rootSigDesc.NumStaticSamplers = 1;
+        rootSigDesc.pStaticSamplers = &sampler;
+        rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+        ID3DBlob* signature = nullptr;
+        ID3DBlob* error = nullptr;
+        D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
+        g_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), __uuidof(ID3D12RootSignature), (void**)&g_rootSignature);
+        if (signature) signature->Release();
+        if (error) error->Release();
+
+        // Shaders
+        const char* shaderCode = R"(
+            Texture2D tex : register(t0);
+            SamplerState sam : register(s0);
+            struct PSInput { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+            PSInput VSMain(uint id : SV_VertexID) {
+                PSInput output;
+                output.uv = float2((id << 1) & 2, id & 2);
+                output.pos = float4(output.uv * float2(2, -2) + float2(-1, 1), 0, 1);
+                return output;
+            }
+            float4 PSMain(PSInput input) : SV_TARGET {
+                float2 uv = input.uv;
+                uv.x = fmod(uv.x * 2.0f, 1.0f); // Split screen logic
+                return tex.Sample(sam, uv);
+            }
+        )";
+
+        ID3DBlob* vsBlob = nullptr;
+        ID3DBlob* psBlob = nullptr;
+        D3DCompile(shaderCode, strlen(shaderCode), nullptr, nullptr, nullptr, "VSMain", "vs_5_0", 0, 0, &vsBlob, nullptr);
+        D3DCompile(shaderCode, strlen(shaderCode), nullptr, nullptr, nullptr, "PSMain", "ps_5_0", 0, 0, &psBlob, nullptr);
+
+        // PSO
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.pRootSignature = g_rootSignature;
+        psoDesc.VS = { reinterpret_cast<UINT8*>(vsBlob->GetBufferPointer()), vsBlob->GetBufferSize() };
+        psoDesc.PS = { reinterpret_cast<UINT8*>(psBlob->GetBufferPointer()), psBlob->GetBufferSize() };
+        psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        psoDesc.SampleMask = UINT_MAX;
+        psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        psoDesc.NumRenderTargets = 1;
+        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.SampleDesc.Count = 1;
+
+        g_device->CreateGraphicsPipelineState(&psoDesc, __uuidof(ID3D12PipelineState), (void**)&g_pso);
+
+        if (vsBlob) vsBlob->Release();
+        if (psBlob) psBlob->Release();
+
+        g_rendererInitialized = true;
+        return true;
+    }
+
+    void DX12HookImpl::RenderSplitScreen(ID3D12Resource* pBackBuffer, ID3D12Resource* pDestTexture) {
+        g_commandAllocator->Reset();
+        g_commandList->Reset(g_commandAllocator, g_pso);
+
+        // Transition states
+        D3D12_RESOURCE_BARRIER barriers[2] = {};
+        barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[0].Transition.pResource = pBackBuffer;
+        barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[1].Transition.pResource = pDestTexture;
+        barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON; // Usually from OpenXR
+        barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        g_commandList->ResourceBarrier(2, barriers);
+
+        // Setup SRV
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Format = pBackBuffer->GetDesc().Format;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+        g_device->CreateShaderResourceView(pBackBuffer, &srvDesc, g_srvHeap->GetCPUDescriptorHandleForHeapStart());
+
+        // Setup RTV
+        D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
+        rtvDesc.Format = pDestTexture->GetDesc().Format;
+        rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        g_device->CreateRenderTargetView(pDestTexture, &rtvDesc, g_rtvHeap->GetCPUDescriptorHandleForHeapStart());
+
+        // Bind and Draw
+        g_commandList->SetGraphicsRootSignature(g_rootSignature);
+        ID3D12DescriptorHeap* heaps[] = { g_srvHeap };
+        g_commandList->SetDescriptorHeaps(1, heaps);
+        g_commandList->SetGraphicsRootDescriptorTable(0, g_srvHeap->GetGPUDescriptorHandleForHeapStart());
+
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = g_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        g_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+        D3D12_VIEWPORT vp = { 0.0f, 0.0f, (float)pDestTexture->GetDesc().Width, (float)pDestTexture->GetDesc().Height, 0.0f, 1.0f };
+        D3D12_RECT scissor = { 0, 0, (LONG)pDestTexture->GetDesc().Width, (LONG)pDestTexture->GetDesc().Height };
+        g_commandList->RSSetViewports(1, &vp);
+        g_commandList->RSSetScissorRects(1, &scissor);
+        g_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        g_commandList->DrawInstanced(3, 1, 0, 0);
+
+        // Transition back
+        barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+        barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+        g_commandList->ResourceBarrier(2, barriers);
+
+        g_commandList->Close();
+
+        ID3D12CommandList* ppCommandLists[] = { g_commandList };
+        g_commandQueue->ExecuteCommandLists(1, ppCommandLists);
+
+        const UINT64 fence = g_fenceValue;
+        g_commandQueue->Signal(g_fence, fence);
+        g_fenceValue++;
+        if (g_fence->GetCompletedValue() < fence) {
+            g_fence->SetEventOnCompletion(fence, g_fenceEvent);
+            WaitForSingleObject(g_fenceEvent, INFINITE);
+        }
+    }
+
+    void DX12HookImpl::CopyToOpenXRSwapchain(void* destTexture) {
+        if (!g_commandQueue || !g_stereoTexture || !destTexture) return;
+
+        if (!g_rendererInitialized) {
+            ID3D12Device* device = nullptr;
+            g_commandQueue->GetDevice(__uuidof(ID3D12Device), (void**)&device);
+            if (device) {
+                InitializeRendererDX12(device);
+                device->Release();
+            }
+        }
+
+        if (g_rendererInitialized) {
+            RenderSplitScreen(g_stereoTexture, (ID3D12Resource*)destTexture);
+        }
+    }

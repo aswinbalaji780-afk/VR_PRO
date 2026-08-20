@@ -49,6 +49,9 @@ namespace VRMod {
         // For Vulkan: returns VkDevice (or a custom struct holding Instance, PhysDev, Device, QueueIndex)
         // For OpenGL: returns HDC (or a custom struct holding HDC and HGLRC)
         virtual void* GetDeviceContext() = 0;
+
+        // Copies the fully rendered split-screen texture into the provided OpenXR Swapchain image.
+        virtual void CopyToOpenXRSwapchain(void* destTexture) = 0;
     };
 
 } // namespace VRMod
