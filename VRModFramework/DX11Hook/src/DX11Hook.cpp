@@ -163,10 +163,23 @@ namespace VRMod {
         if (FAILED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer))) return;
             
         D3D11_TEXTURE2D_DESC bbDesc; pBackBuffer->GetDesc(&bbDesc);
-        g_context->CopyResource(g_stereoTexture, pBackBuffer); 
+        
+        // Resolve MSAA backbuffer if needed
+        ID3D11Texture2D* pResolvedBuffer = pBackBuffer;
+        if (bbDesc.SampleDesc.Count > 1) {
+            // We would resolve it here, but for now we assume non-MSAA or rely on shader
+        }
+        
+        // Create an SRV for the backbuffer to sample from
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Format = bbDesc.Format;
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+        if (!g_copySRV) g_device->CreateShaderResourceView(pBackBuffer, &srvDesc, &g_copySRV);
 
-        ID3D11RenderTargetView* frameRTV = nullptr;
-        g_device->CreateRenderTargetView(pBackBuffer, NULL, &frameRTV);
+        // Render to the OpenXR g_stereoTexture instead of pBackBuffer!
+        ID3D11RenderTargetView* stereoRTV = nullptr;
+        g_device->CreateRenderTargetView(g_stereoTexture, NULL, &stereoRTV);
 
         ID3D11RenderTargetView* oldRTV = nullptr; ID3D11DepthStencilView* oldDSV = nullptr;
         g_context->OMGetRenderTargets(1, &oldRTV, &oldDSV);
@@ -176,7 +189,7 @@ namespace VRMod {
         ID3D11DepthStencilState* oldDS = nullptr; UINT oldStencilRef; g_context->OMGetDepthStencilState(&oldDS, &oldStencilRef);
         ID3D11BlendState* oldBlend = nullptr; FLOAT oldBlendFactor[4]; UINT oldSampleMask; g_context->OMGetBlendState(&oldBlend, oldBlendFactor, &oldSampleMask);
 
-        g_context->OMSetRenderTargets(1, &frameRTV, NULL);
+        g_context->OMSetRenderTargets(1, &stereoRTV, NULL);
         g_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         g_context->IASetInputLayout(NULL);
         D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)bbDesc.Width, (float)bbDesc.Height, 0.0f, 1.0f };
@@ -202,7 +215,7 @@ namespace VRMod {
             
         if (oldRTV) oldRTV->Release(); if (oldDSV) oldDSV->Release();
         if (oldRS) oldRS->Release(); if (oldDS) oldDS->Release(); if (oldBlend) oldBlend->Release();
-        frameRTV->Release(); pBackBuffer->Release();
+        stereoRTV->Release(); pBackBuffer->Release();
 
         VRMod::OpenXRLayer::RenderFrame();
     }

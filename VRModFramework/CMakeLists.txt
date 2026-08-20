@@ -27,15 +27,20 @@ endif()
 # Define source files
 set(SOURCES
     GraphicsManager/src/GraphicsManager.cpp
-    DX11Hook/src/DX11Hook.cpp
-    DX12Hook/src/DX12Hook.cpp
-    VulkanHook/src/VulkanHook.cpp
-    OpenGLHook/src/OpenGLHook.cpp
-    OpenXRLayer/src/OpenXRLayer.cpp
     InputTranslator/src/InputTranslator.cpp
     MemoryManager/src/MemoryManager.cpp
-    Proxy/DXGIWrapper.cpp
+    OpenXRLayer/src/OpenXRLayer.cpp
 )
+
+if(WIN32)
+    list(APPEND SOURCES 
+        DX11Hook/src/DX11Hook.cpp
+        DX12Hook/src/DX12Hook.cpp
+        VulkanHook/src/VulkanHook.cpp
+        OpenGLHook/src/OpenGLHook.cpp
+        Proxy/DXGIWrapper.cpp
+    )
+endif()
 
 if(APPLE)
     list(APPEND SOURCES MetalHook/src/MetalHook.mm)
@@ -67,23 +72,40 @@ add_library(VRModFramework SHARED ${SOURCES})
 target_include_directories(VRModFramework PUBLIC ${INCLUDE_DIRS})
 
 # Link dependencies (openxr_loader is built by the fetched OpenXR SDK)
-target_link_libraries(VRModFramework PRIVATE 
-    minhook 
-    d3d11 
-    d3d12
-    dxgi 
-    d3dcompiler 
-    opengl32
-    openxr_loader
-)
+if(WIN32)
+    target_link_libraries(VRModFramework PRIVATE 
+        minhook 
+        d3d11 
+        d3d12
+        dxgi 
+        d3dcompiler 
+        opengl32
+        openxr_loader
+    )
+    
+    # Set output name to dxgi to act as a proxy DLL on Windows
+    set_target_properties(VRModFramework PROPERTIES
+        OUTPUT_NAME "dxgi"
+        LINKER_LANGUAGE CXX
+    )
+elseif(APPLE)
+    # Link Apple frameworks natively
+    find_library(METAL_LIBRARY Metal)
+    find_library(FOUNDATION_LIBRARY Foundation)
+    
+    target_link_libraries(VRModFramework PRIVATE 
+        ${METAL_LIBRARY}
+        ${FOUNDATION_LIBRARY}
+        openxr_loader
+    )
+    
+    set_target_properties(VRModFramework PROPERTIES
+        OUTPUT_NAME "VRMod"
+        LINKER_LANGUAGE CXX
+    )
+endif()
 
-# Set output name to dxgi to act as a proxy DLL
-set_target_properties(VRModFramework PROPERTIES
-    OUTPUT_NAME "dxgi"
-    LINKER_LANGUAGE CXX
-)
-
-# Copy the openxr_loader.dll next to our dxgi.dll so electron-builder can find it
+# Copy the openxr_loader.dll/dylib next to our plugin so electron-builder can find it
 add_custom_command(TARGET VRModFramework POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     $<TARGET_FILE:openxr_loader>

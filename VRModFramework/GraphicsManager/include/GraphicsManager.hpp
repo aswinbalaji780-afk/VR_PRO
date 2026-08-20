@@ -35,7 +35,7 @@ namespace VRMod {
         GraphicsApi m_activeApi = GraphicsApi::Unknown;
         HMODULE m_hModule = nullptr;
 
-        friend DWORD WINAPI WatchdogThread(LPVOID lpParam);
+        friend void WatchdogThread(GraphicsManager* manager);
     };
 
 } // namespace VRMod

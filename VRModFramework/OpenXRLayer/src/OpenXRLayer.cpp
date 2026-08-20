@@ -28,6 +28,7 @@ namespace OpenXRLayer {
     static XrSpace g_appSpace = XR_NULL_HANDLE;
     static XrSwapchain g_swapchain = XR_NULL_HANDLE;
     static std::vector<XrSwapchainImageD3D11KHR> g_swapchainImages;
+    static std::vector<XrSwapchainImageD3D12KHR> g_swapchainImagesD3D12;
     static ID3D11DeviceContext* g_d3dContext = nullptr;
 
     // Input Actions
@@ -122,7 +123,19 @@ namespace OpenXRLayer {
         XrInstanceCreateInfo createInfo{XR_TYPE_INSTANCE_CREATE_INFO};
         strcpy_s(createInfo.applicationInfo.applicationName, "VRModFramework");
         createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
-        const char* extensions[] = { XR_KHR_D3D11_ENABLE_EXTENSION_NAME };
+
+        const char* d3d11_ext = "XR_KHR_D3D11_enable";
+        const char* d3d12_ext = "XR_KHR_D3D12_enable";
+        const char* vulkan_ext = "XR_KHR_vulkan_enable";
+        const char* opengl_ext = "XR_KHR_opengl_enable";
+
+        const char* extensions[1];
+        auto api = VRMod::GraphicsManager::Get().GetActiveApi();
+        if (api == VRMod::GraphicsApi::D3D11) extensions[0] = d3d11_ext;
+        else if (api == VRMod::GraphicsApi::D3D12) extensions[0] = d3d12_ext;
+        else if (api == VRMod::GraphicsApi::Vulkan) extensions[0] = vulkan_ext;
+        else if (api == VRMod::GraphicsApi::OpenGL) extensions[0] = opengl_ext;
+
         createInfo.enabledExtensionCount = 1; createInfo.enabledExtensionNames = extensions;
 
         if (xrCreateInstance(&createInfo, &g_instance) != XR_SUCCESS) return false;
@@ -135,20 +148,35 @@ namespace OpenXRLayer {
 
         XrGraphicsBindingD3D11KHR d3d11Binding{XR_TYPE_GRAPHICS_BINDING_D3D11_KHR};
         XrGraphicsBindingD3D12KHR d3d12Binding{XR_TYPE_GRAPHICS_BINDING_D3D12_KHR};
+        XrGraphicsBindingVulkanKHR vulkanBinding{XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR};
         XrGraphicsBindingOpenGLWin32KHR glBinding{XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR};
-
-        auto api = VRMod::GraphicsManager::Get().GetActiveApi();
 
         if (api == GraphicsApi::D3D11) {
             d3d11Binding.device = (ID3D11Device*)hook->GetDeviceContext();
             sessionCreateInfo.next = &d3d11Binding;
         } else if (api == GraphicsApi::D3D12) {
-            d3d12Binding.device = (ID3D12Device*)hook->GetDeviceContext(); // OpenXR needs device, queue is needed for submit
+            // GetDeviceContext for DX12 returns CommandQueue. OpenXR expects device and queue.
+            // We need to fetch the device from the queue.
+            ID3D12CommandQueue* queue = (ID3D12CommandQueue*)hook->GetDeviceContext();
+            ID3D12Device* device = nullptr;
+            queue->GetDevice(__uuidof(ID3D12Device), (void**)&device);
+            d3d12Binding.device = device;
+            d3d12Binding.queue = queue;
             sessionCreateInfo.next = &d3d12Binding;
+        } else if (api == GraphicsApi::Vulkan) {
+            struct VulkanDeviceContext { void* instance; void* phys; void* dev; void* queue; };
+            VulkanDeviceContext* vkCtx = (VulkanDeviceContext*)hook->GetDeviceContext();
+            vulkanBinding.instance = (VkInstance)vkCtx->instance;
+            vulkanBinding.physicalDevice = (VkPhysicalDevice)vkCtx->phys;
+            vulkanBinding.device = (VkDevice)vkCtx->dev;
+            vulkanBinding.queueFamilyIndex = 0;
+            vulkanBinding.queueIndex = 0;
+            sessionCreateInfo.next = &vulkanBinding;
         } else if (api == GraphicsApi::OpenGL) {
-            // OpenGL binding needs HDC and HGLRC
-            // glBinding.hDC = ...
-            // glBinding.hGLRC = ...
+            struct OpenGLDeviceContext { HDC hdc; HGLRC hglrc; };
+            OpenGLDeviceContext* glCtx = (OpenGLDeviceContext*)hook->GetDeviceContext();
+            glBinding.hDC = glCtx->hdc;
+            glBinding.hGLRC = glCtx->hglrc;
             sessionCreateInfo.next = &glBinding;
         } else {
             return false; // Unsupported API
@@ -161,6 +189,38 @@ namespace OpenXRLayer {
         spaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
         spaceCreateInfo.poseInReferenceSpace.orientation.w = 1.0f;
         xrCreateReferenceSpace(g_session, &spaceCreateInfo, &g_appSpace);
+
+        // Create Swapchain
+        uint32_t formatCount;
+        xrEnumerateSwapchainFormats(g_session, 0, &formatCount, nullptr);
+        std::vector<int64_t> formats(formatCount);
+        xrEnumerateSwapchainFormats(g_session, formatCount, &formatCount, formats.data());
+
+        XrSwapchainCreateInfo swapchainCreateInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+        swapchainCreateInfo.arraySize = 1;
+        swapchainCreateInfo.format = formats[0]; // Just use the first supported format
+        swapchainCreateInfo.width = 1440; // Default VR resolution per eye
+        swapchainCreateInfo.height = 1600;
+        swapchainCreateInfo.mipCount = 1;
+        swapchainCreateInfo.faceCount = 1;
+        swapchainCreateInfo.sampleCount = 1;
+        swapchainCreateInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
+        if (xrCreateSwapchain(g_session, &swapchainCreateInfo, &g_swapchain) != XR_SUCCESS) return false;
+
+        uint32_t imageCount;
+        xrEnumerateSwapchainImages(g_swapchain, 0, &imageCount, nullptr);
+
+        if (api == GraphicsApi::D3D11) {
+            g_swapchainImages.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
+            xrEnumerateSwapchainImages(g_swapchain, imageCount, &imageCount, (XrSwapchainImageBaseHeader*)g_swapchainImages.data());
+        } else if (api == GraphicsApi::D3D12) {
+            g_swapchainImagesD3D12.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_D3D12_KHR});
+            xrEnumerateSwapchainImages(g_swapchain, imageCount, &imageCount, (XrSwapchainImageBaseHeader*)g_swapchainImagesD3D12.data());
+        } else if (api == GraphicsApi::Vulkan) {
+            // Placeholder: g_swapchainImagesVulkan
+        } else if (api == GraphicsApi::OpenGL) {
+            // Placeholder: g_swapchainImagesOpenGL
+        }
 
         // Initialize VR Inputs!
         InitializeInput();
@@ -337,7 +397,16 @@ namespace OpenXRLayer {
             waitImageInfo.timeout = XR_INFINITE_DURATION;
             xrWaitSwapchainImage(g_swapchain, &waitImageInfo);
 
-            g_d3dContext->CopyResource(g_swapchainImages[imageIndex].texture, shaderOutputTexture);
+            auto api = VRMod::GraphicsManager::Get().GetActiveApi();
+            if (api == VRMod::GraphicsApi::D3D11) {
+                g_d3dContext->CopyResource(g_swapchainImages[imageIndex].texture, shaderOutputTexture);
+            } else if (api == VRMod::GraphicsApi::D3D12) {
+                ID3D12CommandQueue* queue = (ID3D12CommandQueue*)hook->GetDeviceContext();
+                ID3D12Resource* dx12StereoTexture = (ID3D12Resource*)shaderOutputTexture;
+                // Proper resource copy via command list requires allocators and lists.
+                // For a minimal working hook, we rely on DX12Hook.cpp to handle this later.
+                // This will be implemented in DX12Hook.cpp natively.
+            }
 
             XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             xrReleaseSwapchainImage(g_swapchain, &releaseInfo);

@@ -7,7 +7,7 @@ on:
     branches: [ main, master ]
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     permissions:
       contents: write
@@ -19,7 +19,7 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1.1
 
-    - name: Build C++ VRModFramework (DLL & Injector)
+    - name: Build C++ VRModFramework (DLL)
       run: |
         cd VRModFramework
         mkdir build
@@ -55,5 +55,55 @@ jobs:
     - name: Upload Desktop App Installer
       uses: actions/upload-artifact@v4
       with:
-        name: UVRLauncher-App
+        name: UVRLauncher-Windows
         path: UVRLauncher/release/*.exe
+
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Build C++ VRModFramework (Dylib)
+      run: |
+        cd VRModFramework
+        mkdir build
+        cd build
+        cmake ..
+        cmake --build . --config Release
+        # CMake on mac puts output in root of build folder, copy it so package.json finds it
+        cp libVRMod.dylib .. || true
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Build React & Electron Launcher
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        cd UVRLauncher
+        npm install
+        
+        # Dynamically bump version
+        node -e "const fs = require('fs'); const p = JSON.parse(fs.readFileSync('package.json')); p.version = '1.0.${{ github.run_number }}'; fs.writeFileSync('package.json', JSON.stringify(p, null, 2));"
+        
+        npx vite build
+        npx electron-builder --mac
+      
+    - name: Publish Release using GitHub CLI
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        cd UVRLauncher
+        gh release upload "v1.0.${{ github.run_number }}" ./release/*.dmg ./release/latest-mac.yml || true
+        
+    - name: Upload Desktop App Installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: UVRLauncher-MacOS
+        path: UVRLauncher/release/*.dmg

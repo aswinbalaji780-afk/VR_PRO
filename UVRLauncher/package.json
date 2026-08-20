@@ -37,6 +37,10 @@
     "win": {
       "target": "nsis"
     },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.games"
+    },
     "publish": [
       {
         "provider": "github",
@@ -48,7 +52,13 @@
     "extraResources": [
       {
         "from": "../VRModFramework/build/Release/dxgi.dll",
-        "to": "dxgi.dll"
+        "to": "dxgi.dll",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../VRModFramework/build/libVRMod.dylib",
+        "to": "libVRMod.dylib",
+        "filter": ["**/*"]
       },
       {
         "from": "../VRModFramework/vr_config.ini",
