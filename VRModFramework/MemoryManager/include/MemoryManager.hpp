@@ -1,7 +1,11 @@
 #ifndef VRMOD_MEMORYMANAGER_HPP
 #define VRMOD_MEMORYMANAGER_HPP
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+typedef void* HMODULE;
+#endif
 #include <cstdint>
 
 namespace VRMod {

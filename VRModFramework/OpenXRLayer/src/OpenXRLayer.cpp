@@ -143,17 +143,21 @@ namespace OpenXRLayer {
 
         const char* d3d11_ext = "XR_KHR_D3D11_enable";
         const char* d3d12_ext = "XR_KHR_D3D12_enable";
-        const char* vulkan_ext = "XR_KHR_vulkan_enable";
         const char* opengl_ext = "XR_KHR_opengl_enable";
         const char* metal_ext = "XR_KHR_metal_enable";
+#ifdef XR_USE_GRAPHICS_API_VULKAN
+        const char* vulkan_ext = "XR_KHR_vulkan_enable";
+#endif
 
         const char* extensions[1];
         auto api = VRMod::GraphicsManager::Get().GetActiveApi();
         if (api == VRMod::GraphicsApi::D3D11) extensions[0] = d3d11_ext;
         else if (api == VRMod::GraphicsApi::D3D12) extensions[0] = d3d12_ext;
-        else if (api == VRMod::GraphicsApi::Vulkan) extensions[0] = vulkan_ext;
         else if (api == VRMod::GraphicsApi::OpenGL) extensions[0] = opengl_ext;
         else if (api == VRMod::GraphicsApi::Metal) extensions[0] = metal_ext;
+#ifdef XR_USE_GRAPHICS_API_VULKAN
+        else if (api == VRMod::GraphicsApi::Vulkan) extensions[0] = vulkan_ext;
+#endif
 
         createInfo.enabledExtensionCount = 1; createInfo.enabledExtensionNames = extensions;
 
@@ -168,8 +172,10 @@ namespace OpenXRLayer {
 #ifdef _WIN32
         XrGraphicsBindingD3D11KHR d3d11Binding{XR_TYPE_GRAPHICS_BINDING_D3D11_KHR};
         XrGraphicsBindingD3D12KHR d3d12Binding{XR_TYPE_GRAPHICS_BINDING_D3D12_KHR};
-        XrGraphicsBindingVulkanKHR vulkanBinding{XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR};
         XrGraphicsBindingOpenGLWin32KHR glBinding{XR_TYPE_GRAPHICS_BINDING_OPENGL_WIN32_KHR};
+#ifdef XR_USE_GRAPHICS_API_VULKAN
+        XrGraphicsBindingVulkanKHR vulkanBinding{XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR};
+#endif
 
         if (api == GraphicsApi::D3D11) {
             d3d11Binding.device = (ID3D11Device*)hook->GetDeviceContext();
@@ -181,6 +187,7 @@ namespace OpenXRLayer {
             d3d12Binding.device = device;
             d3d12Binding.queue = queue;
             sessionCreateInfo.next = &d3d12Binding;
+#ifdef XR_USE_GRAPHICS_API_VULKAN
         } else if (api == GraphicsApi::Vulkan) {
             struct VulkanDeviceContext { void* instance; void* phys; void* dev; void* queue; };
             VulkanDeviceContext* vkCtx = (VulkanDeviceContext*)hook->GetDeviceContext();
@@ -190,6 +197,7 @@ namespace OpenXRLayer {
             vulkanBinding.queueFamilyIndex = 0;
             vulkanBinding.queueIndex = 0;
             sessionCreateInfo.next = &vulkanBinding;
+#endif
         } else if (api == GraphicsApi::OpenGL) {
             struct OpenGLDeviceContext { HDC hdc; HGLRC hglrc; };
             OpenGLDeviceContext* glCtx = (OpenGLDeviceContext*)hook->GetDeviceContext();
