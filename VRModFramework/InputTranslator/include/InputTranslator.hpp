@@ -1,8 +1,7 @@
 #ifndef VRMOD_INPUTTRANSLATOR_HPP
 #define VRMOD_INPUTTRANSLATOR_HPP
 
-#include <windows.h>
-
+#include <cstdint>
 namespace VRMod {
 namespace InputTranslator {
 
@@ -10,10 +9,10 @@ namespace InputTranslator {
     bool Initialize();
 
     // Simulates pressing a physical keyboard key
-    void SendKeyPress(WORD virtualKey);
+    void SendKeyPress(uint16_t virtualKey);
 
     // Simulates releasing a physical keyboard key
-    void SendKeyRelease(WORD virtualKey);
+    void SendKeyRelease(uint16_t virtualKey);
 
     // Handles the "Attack" action (e.g., Right Trigger pulled)
     void OnActionAttack(bool isPressed);

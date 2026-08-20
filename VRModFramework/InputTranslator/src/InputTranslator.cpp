@@ -1,6 +1,12 @@
 #include "InputTranslator.hpp"
 #include <iostream>
 
+#ifdef _WIN32
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <ApplicationServices/ApplicationServices.h>
+#endif
+
 namespace VRMod {
 namespace InputTranslator {
 
@@ -13,33 +19,53 @@ namespace InputTranslator {
         return true;
     }
 
-    void SendMouseClick(DWORD flags) {
+    void SendMouseClick(bool left, bool down) {
+#ifdef _WIN32
         INPUT input = {0};
         input.type = INPUT_MOUSE;
-        input.mi.dwFlags = flags;
+        if (left) {
+            input.mi.dwFlags = down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP;
+        } else {
+            input.mi.dwFlags = down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP;
+        }
         SendInput(1, &input, sizeof(INPUT));
+#elif defined(__APPLE__)
+        CGEventType eventType;
+        CGMouseButton button;
+        if (left) {
+            eventType = down ? kCGEventLeftMouseDown : kCGEventLeftMouseUp;
+            button = kCGMouseButtonLeft;
+        } else {
+            eventType = down ? kCGEventRightMouseDown : kCGEventRightMouseUp;
+            button = kCGMouseButtonRight;
+        }
+        
+        CGEventRef currentEvent = CGEventCreate(NULL);
+        CGPoint currentPos = CGEventGetLocation(currentEvent);
+        CFRelease(currentEvent);
+
+        CGEventRef event = CGEventCreateMouseEvent(NULL, eventType, currentPos, button);
+        CGEventPost(kCGHIDEventTap, event);
+        CFRelease(event);
+#endif
     }
 
     void OnActionAttack(bool isPressed) {
         if (isPressed && !g_attackState) {
-            // Trigger Pulled -> Simulate Left Mouse Down
-            SendMouseClick(MOUSEEVENTF_LEFTDOWN);
+            SendMouseClick(true, true);
             g_attackState = true;
         } else if (!isPressed && g_attackState) {
-            // Trigger Released -> Simulate Left Mouse Up
-            SendMouseClick(MOUSEEVENTF_LEFTUP);
+            SendMouseClick(true, false);
             g_attackState = false;
         }
     }
 
     void OnActionDeflect(bool isPressed) {
         if (isPressed && !g_deflectState) {
-            // Trigger Pulled -> Simulate Right Mouse Down
-            SendMouseClick(MOUSEEVENTF_RIGHTDOWN);
+            SendMouseClick(false, true);
             g_deflectState = true;
         } else if (!isPressed && g_deflectState) {
-            // Trigger Released -> Simulate Right Mouse Up
-            SendMouseClick(MOUSEEVENTF_RIGHTUP);
+            SendMouseClick(false, false);
             g_deflectState = false;
         }
     }
@@ -54,20 +80,30 @@ namespace InputTranslator {
         }
 
         if (mouseDX != 0 || mouseDY != 0) {
+#ifdef _WIN32
             INPUT input = {0};
             input.type = INPUT_MOUSE;
             input.mi.dx = mouseDX;
             input.mi.dy = mouseDY;
             input.mi.dwFlags = MOUSEEVENTF_MOVE;
             SendInput(1, &input, sizeof(INPUT));
+#elif defined(__APPLE__)
+            CGEventRef currentEvent = CGEventCreate(NULL);
+            CGPoint currentPos = CGEventGetLocation(currentEvent);
+            CFRelease(currentEvent);
+            
+            CGPoint newPos = CGPointMake(currentPos.x + mouseDX, currentPos.y + mouseDY);
+            CGEventRef moveEvent = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, newPos, kCGMouseButtonLeft);
+            CGEventPost(kCGHIDEventTap, moveEvent);
+            CFRelease(moveEvent);
+#endif
         }
     }
 
     void Shutdown() {
         std::cout << "[InputTranslator] Shutting down Input Translation Layer.\n";
-        // Ensure keys aren't left stuck down if closed unexpectedly
-        if (g_attackState) SendMouseClick(MOUSEEVENTF_LEFTUP);
-        if (g_deflectState) SendMouseClick(MOUSEEVENTF_RIGHTUP);
+        if (g_attackState) SendMouseClick(true, false);
+        if (g_deflectState) SendMouseClick(false, false);
     }
 
 } // namespace InputTranslator

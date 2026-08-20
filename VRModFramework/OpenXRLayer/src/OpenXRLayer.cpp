@@ -1,19 +1,29 @@
+#ifdef _WIN32
 #define XR_USE_PLATFORM_WIN32
 #define XR_USE_GRAPHICS_API_D3D11
 #define XR_USE_GRAPHICS_API_D3D12
 #define XR_USE_GRAPHICS_API_OPENGL
-// #define XR_USE_GRAPHICS_API_VULKAN // Uncomment when Vulkan SDK is fully integrated
+// #define XR_USE_GRAPHICS_API_VULKAN
+#elif defined(__APPLE__)
+#define XR_USE_PLATFORM_APPLE
+#define XR_USE_GRAPHICS_API_METAL
+#endif
 
 #include "OpenXRLayer.hpp"
 #include "../../GraphicsManager/include/GraphicsManager.hpp"
 #include "../../InputTranslator/include/InputTranslator.hpp"
 #include "../../MemoryManager/include/MemoryManager.hpp"
+
+#ifdef _WIN32
 #include <windows.h>
 #include <d3d11.h>
 #include <d3d12.h>
 #include <GL/gl.h>
-// #include <vulkan/vulkan.h>
 #include "../../DX11Hook/include/DX11Hook.hpp"
+#elif defined(__APPLE__)
+#import <Metal/Metal.h>
+#endif
+
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include <iostream>
@@ -27,9 +37,14 @@ namespace OpenXRLayer {
     static XrSession g_session = XR_NULL_HANDLE;
     static XrSpace g_appSpace = XR_NULL_HANDLE;
     static XrSwapchain g_swapchain = XR_NULL_HANDLE;
+
+#ifdef _WIN32
     static std::vector<XrSwapchainImageD3D11KHR> g_swapchainImages;
     static std::vector<XrSwapchainImageD3D12KHR> g_swapchainImagesD3D12;
     static ID3D11DeviceContext* g_d3dContext = nullptr;
+#elif defined(__APPLE__)
+    static std::vector<XrSwapchainImageMetalKHR> g_swapchainImagesMetal;
+#endif
 
     // Input Actions
     static XrActionSet g_actionSet = XR_NULL_HANDLE;
@@ -115,10 +130,12 @@ namespace OpenXRLayer {
         auto hook = VRMod::GraphicsManager::Get().GetActiveHook();
         if (!hook) return false;
 
+#ifdef _WIN32
         if (VRMod::GraphicsManager::Get().GetActiveApi() == VRMod::GraphicsApi::D3D11) {
             ID3D11Device* d3dDevice = (ID3D11Device*)hook->GetDeviceContext();
             if (d3dDevice) d3dDevice->GetImmediateContext(&g_d3dContext);
         }
+#endif
 
         XrInstanceCreateInfo createInfo{XR_TYPE_INSTANCE_CREATE_INFO};
         strcpy_s(createInfo.applicationInfo.applicationName, "VRModFramework");
@@ -128,6 +145,7 @@ namespace OpenXRLayer {
         const char* d3d12_ext = "XR_KHR_D3D12_enable";
         const char* vulkan_ext = "XR_KHR_vulkan_enable";
         const char* opengl_ext = "XR_KHR_opengl_enable";
+        const char* metal_ext = "XR_KHR_metal_enable";
 
         const char* extensions[1];
         auto api = VRMod::GraphicsManager::Get().GetActiveApi();
@@ -135,6 +153,7 @@ namespace OpenXRLayer {
         else if (api == VRMod::GraphicsApi::D3D12) extensions[0] = d3d12_ext;
         else if (api == VRMod::GraphicsApi::Vulkan) extensions[0] = vulkan_ext;
         else if (api == VRMod::GraphicsApi::OpenGL) extensions[0] = opengl_ext;
+        else if (api == VRMod::GraphicsApi::Metal) extensions[0] = metal_ext;
 
         createInfo.enabledExtensionCount = 1; createInfo.enabledExtensionNames = extensions;
 
@@ -146,6 +165,7 @@ namespace OpenXRLayer {
 
         XrSessionCreateInfo sessionCreateInfo{XR_TYPE_SESSION_CREATE_INFO};
 
+#ifdef _WIN32
         XrGraphicsBindingD3D11KHR d3d11Binding{XR_TYPE_GRAPHICS_BINDING_D3D11_KHR};
         XrGraphicsBindingD3D12KHR d3d12Binding{XR_TYPE_GRAPHICS_BINDING_D3D12_KHR};
         XrGraphicsBindingVulkanKHR vulkanBinding{XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR};
@@ -155,8 +175,6 @@ namespace OpenXRLayer {
             d3d11Binding.device = (ID3D11Device*)hook->GetDeviceContext();
             sessionCreateInfo.next = &d3d11Binding;
         } else if (api == GraphicsApi::D3D12) {
-            // GetDeviceContext for DX12 returns CommandQueue. OpenXR expects device and queue.
-            // We need to fetch the device from the queue.
             ID3D12CommandQueue* queue = (ID3D12CommandQueue*)hook->GetDeviceContext();
             ID3D12Device* device = nullptr;
             queue->GetDevice(__uuidof(ID3D12Device), (void**)&device);
@@ -181,6 +199,17 @@ namespace OpenXRLayer {
         } else {
             return false; // Unsupported API
         }
+#elif defined(__APPLE__)
+        XrGraphicsBindingMetalKHR metalBinding{XR_TYPE_GRAPHICS_BINDING_METAL_KHR};
+        if (api == GraphicsApi::Metal) {
+            struct MetalDeviceContext { void* device; void* queue; };
+            MetalDeviceContext* metalCtx = (MetalDeviceContext*)hook->GetDeviceContext();
+            metalBinding.commandQueue = metalCtx->queue;
+            sessionCreateInfo.next = &metalBinding;
+        } else {
+            return false;
+        }
+#endif
 
         sessionCreateInfo.systemId = g_systemId;
         if (xrCreateSession(g_instance, &sessionCreateInfo, &g_session) != XR_SUCCESS) return false;
@@ -210,6 +239,7 @@ namespace OpenXRLayer {
         uint32_t imageCount;
         xrEnumerateSwapchainImages(g_swapchain, 0, &imageCount, nullptr);
 
+#ifdef _WIN32
         if (api == GraphicsApi::D3D11) {
             g_swapchainImages.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
             xrEnumerateSwapchainImages(g_swapchain, imageCount, &imageCount, (XrSwapchainImageBaseHeader*)g_swapchainImages.data());
@@ -221,6 +251,12 @@ namespace OpenXRLayer {
         } else if (api == GraphicsApi::OpenGL) {
             // Placeholder: g_swapchainImagesOpenGL
         }
+#elif defined(__APPLE__)
+        if (api == GraphicsApi::Metal) {
+            g_swapchainImagesMetal.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_METAL_KHR});
+            xrEnumerateSwapchainImages(g_swapchain, imageCount, &imageCount, (XrSwapchainImageBaseHeader*)g_swapchainImagesMetal.data());
+        }
+#endif
 
         // Initialize VR Inputs!
         InitializeInput();
@@ -287,6 +323,7 @@ namespace OpenXRLayer {
                 static float s_sensY = 1000.0f;
                 static bool s_invertY = false;
 
+#ifdef _WIN32
                 if (!s_configLoaded) {
                     std::string configPath = VRMod::DX11HookImpl::GetConfigPath();
                     char modeBuf[32];
@@ -303,6 +340,10 @@ namespace OpenXRLayer {
                     s_invertY = (_stricmp(invBuf, "true") == 0);
                     s_configLoaded = true;
                 }
+#else
+                s_isMouseMode = true; // Always Mouse mode on Mac for now
+                s_configLoaded = true;
+#endif
 
                 if (s_isMouseMode) {
                     static float s_prevPitch = 0.0f;
@@ -360,7 +401,11 @@ namespace OpenXRLayer {
     }
 
     bool IsInitialized() {
+#ifdef _WIN32
         return (g_session != XR_NULL_HANDLE && g_d3dContext != nullptr);
+#else
+        return (g_session != XR_NULL_HANDLE);
+#endif
     }
 
     void RenderFrame() {
@@ -398,6 +443,7 @@ namespace OpenXRLayer {
             xrWaitSwapchainImage(g_swapchain, &waitImageInfo);
 
             auto api = VRMod::GraphicsManager::Get().GetActiveApi();
+#ifdef _WIN32
             if (api == VRMod::GraphicsApi::D3D11) {
                 g_d3dContext->CopyResource(g_swapchainImages[imageIndex].texture, shaderOutputTexture);
             } else if (api == VRMod::GraphicsApi::D3D12) {
@@ -407,6 +453,11 @@ namespace OpenXRLayer {
                 // For a minimal working hook, we rely on DX12Hook.cpp to handle this later.
                 // This will be implemented in DX12Hook.cpp natively.
             }
+#elif defined(__APPLE__)
+            if (api == VRMod::GraphicsApi::Metal) {
+                // In a full implementation, you encode a blit command here
+            }
+#endif
 
             XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             xrReleaseSwapchainImage(g_swapchain, &releaseInfo);

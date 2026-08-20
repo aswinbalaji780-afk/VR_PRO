@@ -2,7 +2,10 @@
 #include <iostream>
 #include <vector>
 #include <string>
+
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 namespace VRMod {
 namespace MemoryManager {
@@ -13,6 +16,7 @@ namespace MemoryManager {
     static uintptr_t g_cameraBaseOffset = 0x03D5C000; 
     static std::vector<unsigned int> g_cameraOffsets = { 0x20, 0x58, 0x8, 0x10 };
 
+#ifdef _WIN32
     // Utility function to resolve multi-level pointers (DMA - Dynamic Memory Allocation)
     uintptr_t FindDMAAddy(uintptr_t ptr, std::vector<unsigned int> offsets) {
         uintptr_t addr = ptr;
@@ -47,8 +51,10 @@ namespace MemoryManager {
         }
         return ".\\vr_config.ini";
     }
+#endif
 
     bool Initialize(HMODULE hModule) {
+#ifdef _WIN32
         // GetModuleHandle(NULL) gets the dynamic base address of the target executable
         g_baseAddress = (uintptr_t)GetModuleHandle(NULL);
         
@@ -107,9 +113,14 @@ namespace MemoryManager {
 
         std::cout << "[MemoryManager] Initialized. Base Address: " << std::hex << g_baseAddress << "\n";
         return true;
+#else
+        std::cout << "[MemoryManager] Memory hacking is not currently supported natively on macOS.\n";
+        return true;
+#endif
     }
 
     void UpdateCamera(float x, float y, float z, float pitch, float yaw, float roll) {
+#ifdef _WIN32
         if (g_baseAddress == 0) return;
 
         uintptr_t cameraStruct = FindDMAAddy(g_baseAddress + g_cameraBaseOffset, g_cameraOffsets);
@@ -130,10 +141,12 @@ namespace MemoryManager {
         if (!IsBadWritePtr(camPitch, sizeof(float))) *camPitch += pitch;
         if (!IsBadWritePtr(camYaw, sizeof(float))) *camYaw += yaw;
         if (!IsBadWritePtr(camRoll, sizeof(float))) *camRoll += roll;
+#endif
     }
 
     void UpdateHands(float rx, float ry, float rz, float rp, float ryaw, float rroll,
                      float lx, float ly, float lz, float lp, float lyaw, float lroll) {
+#ifdef _WIN32
         if (!g_motionEnabled || g_baseAddress == 0) return;
 
         // 1. Resolve pointer to Local Player Character
@@ -166,6 +179,7 @@ namespace MemoryManager {
             leftMatrix[13] = ly; // Translation Y
             leftMatrix[14] = lz; // Translation Z
         }
+#endif
     }
 
 } // namespace MemoryManager
