@@ -15,8 +15,8 @@ FetchContent_MakeAvailable(minhook)
 # Create Shared Library (DLL)
 add_library(MinimalDX11Hook SHARED main.cpp)
 
-# Link MinHook, DirectX 11, DXGI, and D3DCompiler
 target_link_libraries(MinimalDX11Hook PRIVATE minhook d3d11 dxgi d3dcompiler)
+target_include_directories(MinimalDX11Hook PRIVATE ${minhook_SOURCE_DIR}/include)
 
 # Optimize for size and speed (Release builds)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

@@ -68,7 +68,10 @@ FetchContent_MakeAvailable(openxr)
 add_library(VRModFramework SHARED ${SOURCES})
 
 # Include directories
-target_include_directories(VRModFramework PUBLIC ${INCLUDE_DIRS})
+target_include_directories(VRModFramework PUBLIC 
+    ${INCLUDE_DIRS}
+    ${minhook_SOURCE_DIR}/include
+)
 
 # Link dependencies (openxr_loader is built by the fetched OpenXR SDK)
 if(WIN32)
