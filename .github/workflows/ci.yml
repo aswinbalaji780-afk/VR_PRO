@@ -27,6 +27,11 @@ jobs:
         cmake .. -A x64
         cmake --build . --config Release
 
+    - name: Run C++ Unit Tests (Catch2)
+      run: |
+        cd VRModFramework/build
+        ctest -C Release --output-on-failure
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:

@@ -4,6 +4,14 @@ import fs from 'node:fs';
 import { autoUpdater } from 'electron-updater';
 import { exec } from 'node:child_process';
 
+// @ts-ignore
+import * as Sentry from "@sentry/electron/main";
+
+Sentry.init({
+  dsn: "https://examplePublicKey@o0.ingest.sentry.io/0", // TODO: Replace with real DSN
+  debug: true,
+});
+
 // Suppress the CSP warning in development
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
 
