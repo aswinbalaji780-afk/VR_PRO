@@ -31,6 +31,11 @@
   "build": {
     "appId": "com.nexusxr.uvrlauncher",
     "productName": "UVR Launcher",
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
     "directories": {
       "output": "release"
     },

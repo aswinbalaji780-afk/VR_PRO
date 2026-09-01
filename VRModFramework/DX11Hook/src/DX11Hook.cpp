@@ -41,46 +41,6 @@ namespace VRMod {
     static ID3D11Device* g_device = nullptr;
     static ID3D11DeviceContext* g_context = nullptr;
     static ID3D11Texture2D* g_stereoTexture = nullptr; 
-    static ID3D11Texture2D* g_copyTexture = nullptr;
-    static ID3D11ShaderResourceView* g_copySRV = nullptr;
-    static ID3D11RenderTargetView* g_stereoRTV = nullptr;
-    static ID3D11VertexShader* g_vertexShader = nullptr;
-    static ID3D11PixelShader* g_pixelShader = nullptr;
-    static ID3D11SamplerState* g_samplerState = nullptr;
-    
-    // Solid Rendering States
-    static ID3D11RasterizerState* g_rasterState = nullptr;
-    static ID3D11DepthStencilState* g_depthState = nullptr;
-    static ID3D11BlendState* g_blendState = nullptr;
-
-    const char* g_vsCode = R"(
-    struct VS_OUTPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD0; };
-    VS_OUTPUT main(uint id : SV_VertexID) {
-        VS_OUTPUT output;
-        output.tex = float2((id << 1) & 2, id & 2);
-        output.pos = float4(output.tex * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);
-        return output;
-    })";
-
-    const char* g_psCode = R"(
-    Texture2D shaderTexture : register(t0);
-    SamplerState SampleType : register(s0);
-    struct PixelInputType { float4 position : SV_POSITION; float2 tex : TEXCOORD0; };
-    static const float k1 = 0.22f; static const float k2 = 0.24f; static const float IPD_SHIFT = 0.05f;
-    float2 ApplyDistortion(float2 uv, float2 center) {
-        float2 r = uv - center; float r2 = r.x * r.x + r.y * r.y;
-        float distortion = 1.0f + (k1 * r2) + (k2 * r2 * r2);
-        return center + (r * distortion);
-    }
-    float4 main(PixelInputType input) : SV_TARGET {
-        float2 texCoord = input.tex; bool isLeftEye = texCoord.x < 0.5f;
-        float2 localUV, center, distortedUV;
-        if (isLeftEye) { localUV = float2(texCoord.x * 2.0f, texCoord.y); center = float2(0.5f + IPD_SHIFT, 0.5f); }
-        else { localUV = float2((texCoord.x - 0.5f) * 2.0f, texCoord.y); center = float2(0.5f - IPD_SHIFT, 0.5f); }
-        distortedUV = ApplyDistortion(localUV, center);
-        if (distortedUV.x < 0.0f || distortedUV.x > 1.0f || distortedUV.y < 0.0f || distortedUV.y > 1.0f) return float4(0.0f, 0.0f, 0.0f, 1.0f);
-        return shaderTexture.Sample(SampleType, distortedUV);
-    })";
 
     bool InitializeRenderer(IDXGISwapChain* pSwapChain) {
         Log("InitializeRenderer triggered.");
@@ -93,47 +53,7 @@ namespace VRMod {
         D3D11_TEXTURE2D_DESC desc; pBackBuffer->GetDesc(&desc);
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
         g_device->CreateTexture2D(&desc, NULL, &g_stereoTexture);
-        g_device->CreateTexture2D(&desc, NULL, &g_copyTexture);
-        
-        DXGI_FORMAT viewFormat = desc.Format;
-        if (viewFormat == DXGI_FORMAT_R8G8B8A8_TYPELESS) viewFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-        else if (viewFormat == DXGI_FORMAT_B8G8R8A8_TYPELESS) viewFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
-        else if (viewFormat == DXGI_FORMAT_R10G10B10A2_TYPELESS) viewFormat = DXGI_FORMAT_R10G10B10A2_UNORM;
-        else if (viewFormat == DXGI_FORMAT_R16G16B16A16_TYPELESS) viewFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
-
-        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-        srvDesc.Format = viewFormat;
-        srvDesc.ViewDimension = (desc.SampleDesc.Count > 1) ? D3D11_SRV_DIMENSION_TEXTURE2DMS : D3D11_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MostDetailedMip = 0; srvDesc.Texture2D.MipLevels = 1;
-        g_device->CreateShaderResourceView(g_copyTexture, &srvDesc, &g_copySRV);
-
-        D3D11_RENDER_TARGET_VIEW_DESC rtvDesc = {};
-        rtvDesc.Format = viewFormat;
-        rtvDesc.ViewDimension = (desc.SampleDesc.Count > 1) ? D3D11_RTV_DIMENSION_TEXTURE2DMS : D3D11_RTV_DIMENSION_TEXTURE2D;
-        g_device->CreateRenderTargetView(g_stereoTexture, &rtvDesc, &g_stereoRTV);
-
         pBackBuffer->Release();
-
-        ID3DBlob* vsBlob = nullptr; 
-        if (FAILED(D3DCompile(g_vsCode, strlen(g_vsCode), NULL, NULL, NULL, "main", "vs_5_0", 0, 0, &vsBlob, NULL))) { Log("Failed compiling VS"); return false; }
-        g_device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), NULL, &g_vertexShader); vsBlob->Release();
-
-        ID3DBlob* psBlob = nullptr; 
-        if (FAILED(D3DCompile(g_psCode, strlen(g_psCode), NULL, NULL, NULL, "main", "ps_5_0", 0, 0, &psBlob, NULL))) { Log("Failed compiling PS"); return false; }
-        g_device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), NULL, &g_pixelShader); psBlob->Release();
-
-        D3D11_SAMPLER_DESC sampDesc = {};
-        sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR; sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP; sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-        sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-        g_device->CreateSamplerState(&sampDesc, &g_samplerState);
-
-        D3D11_RASTERIZER_DESC rastDesc = {}; rastDesc.FillMode = D3D11_FILL_SOLID; rastDesc.CullMode = D3D11_CULL_NONE;
-        g_device->CreateRasterizerState(&rastDesc, &g_rasterState);
-        D3D11_DEPTH_STENCIL_DESC dsDesc = {}; dsDesc.DepthEnable = FALSE; dsDesc.StencilEnable = FALSE;
-        g_device->CreateDepthStencilState(&dsDesc, &g_depthState);
-        D3D11_BLEND_DESC blendDesc = {}; blendDesc.RenderTarget[0].BlendEnable = FALSE; blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-        g_device->CreateBlendState(&blendDesc, &g_blendState);
 
         VRMod::OpenXRLayer::Initialize();
         g_rendererInitialized = true;
@@ -142,71 +62,51 @@ namespace VRMod {
     }
 
     void WINAPI hooked_DrawIndexed(ID3D11DeviceContext* pContext, UINT IndexCount, UINT StartIndexLocation, INT BaseVertexLocation) {
-        original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
+        if (!VRMod::OpenXRLayer::IsInitialized() && !g_forceSplitScreen) {
+            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
+            return;
+        }
+
+        UINT numViewports = 1;
+        D3D11_VIEWPORT vp;
+        pContext->RSGetViewports(&numViewports, &vp);
+
+        // Only split main render passes (ignore small shadow maps / UI passes)
+        if (numViewports > 0 && vp.Width > 1000.0f) {
+            D3D11_VIEWPORT leftVp = vp;
+            leftVp.Width /= 2.0f;
+            
+            D3D11_VIEWPORT rightVp = leftVp;
+            rightVp.TopLeftX += leftVp.Width;
+
+            // Draw Left Eye
+            pContext->RSSetViewports(1, &leftVp);
+            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
+
+            // Draw Right Eye
+            pContext->RSSetViewports(1, &rightVp);
+            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
+            
+            // Restore Original
+            pContext->RSSetViewports(1, &vp);
+        } else {
+            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
+        }
     }
 
     void PerformVRRender(IDXGISwapChain* pSwapChain) {
         if (!g_rendererInitialized) if (!InitializeRenderer(pSwapChain)) return;
         if (!g_context) return;
 
-        // Failsafe: Don't draw the VR split-screen if the headset isn't running,
-        // UNLESS the user explicitly forced it in vr_config.ini for debugging!
         if (!VRMod::OpenXRLayer::IsInitialized() && !g_forceSplitScreen) return;
 
         ID3D11Texture2D* pBackBuffer = nullptr;
         if (FAILED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer))) return;
             
-        D3D11_TEXTURE2D_DESC bbDesc; pBackBuffer->GetDesc(&bbDesc);
+        // The backbuffer is ALREADY split natively thanks to hooked_DrawIndexed.
+        // We just need to copy it to g_stereoTexture for OpenXR to use!
+        g_context->CopyResource(g_stereoTexture, pBackBuffer);
         
-        // 1. Copy the game's flat image into g_copyTexture (so we can use it as SRV)
-        g_context->CopyResource(g_copyTexture, pBackBuffer);
-
-        if (!g_stereoRTV || !g_copySRV) {
-            pBackBuffer->Release();
-            return; // Failsafe if views failed to create
-        }
-
-        ID3D11RenderTargetView* oldRTV = nullptr; ID3D11DepthStencilView* oldDSV = nullptr;
-        g_context->OMGetRenderTargets(1, &oldRTV, &oldDSV);
-        D3D11_PRIMITIVE_TOPOLOGY oldTopology; g_context->IAGetPrimitiveTopology(&oldTopology);
-        UINT numViewports = 1; D3D11_VIEWPORT oldVP; g_context->RSGetViewports(&numViewports, &oldVP);
-        ID3D11RasterizerState* oldRS = nullptr; g_context->RSGetState(&oldRS);
-        ID3D11DepthStencilState* oldDS = nullptr; UINT oldStencilRef; g_context->OMGetDepthStencilState(&oldDS, &oldStencilRef);
-        ID3D11BlendState* oldBlend = nullptr; FLOAT oldBlendFactor[4]; UINT oldSampleMask; g_context->OMGetBlendState(&oldBlend, oldBlendFactor, &oldSampleMask);
-
-        // 2. Render SBS into g_stereoTexture
-        g_context->OMSetRenderTargets(1, &g_stereoRTV, NULL);
-        g_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        g_context->IASetInputLayout(NULL);
-        D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)bbDesc.Width, (float)bbDesc.Height, 0.0f, 1.0f };
-        g_context->RSSetViewports(1, &vp);
-        g_context->RSSetState(g_rasterState);
-        g_context->OMSetDepthStencilState(g_depthState, 0);
-        g_context->OMSetBlendState(g_blendState, NULL, 0xFFFFFFFF);
-
-        g_context->VSSetShader(g_vertexShader, NULL, 0);
-        g_context->PSSetShader(g_pixelShader, NULL, 0);
-        g_context->PSSetShaderResources(0, 1, &g_copySRV);
-        g_context->PSSetSamplers(0, 1, &g_samplerState);
-        
-        g_context->Draw(3, 0);
-
-        // Unbind SRV so we can copy safely
-        ID3D11ShaderResourceView* nullSRV[1] = { nullptr }; g_context->PSSetShaderResources(0, 1, nullSRV);
-        
-        // 3. Copy the processed split-screen image back to the game window so the desktop monitor is split too!
-        g_context->CopyResource(pBackBuffer, g_stereoTexture);
-
-        // Restore original states
-        g_context->OMSetRenderTargets(1, &oldRTV, oldDSV);
-        g_context->IASetPrimitiveTopology(oldTopology);
-        g_context->RSSetViewports(1, &oldVP);
-        g_context->RSSetState(oldRS);
-        g_context->OMSetDepthStencilState(oldDS, oldStencilRef);
-        g_context->OMSetBlendState(oldBlend, oldBlendFactor, oldSampleMask);
-            
-        if (oldRTV) oldRTV->Release(); if (oldDSV) oldDSV->Release();
-        if (oldRS) oldRS->Release(); if (oldDS) oldDS->Release(); if (oldBlend) oldBlend->Release();
         pBackBuffer->Release();
 
         VRMod::OpenXRLayer::RenderFrame();
