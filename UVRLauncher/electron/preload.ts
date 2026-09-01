@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+// @ts-ignore
+import * as Sentry from "@sentry/electron/preload";
+
+Sentry.init({});
+
 // Expose safe APIs to the React renderer process
 contextBridge.exposeInMainWorld('electronAPI', {
   sendMessage: (message: string) => ipcRenderer.send('message', message),

@@ -3,10 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
 
-// @ts-ignore
-import * as Sentry from "@sentry/electron/renderer";
 
-Sentry.init({});
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
