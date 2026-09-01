@@ -50,8 +50,7 @@ endif()
 include(FetchContent)
 FetchContent_Declare(
     minhook
-    GIT_REPOSITORY https://github.com/TsudaKageyu/minhook.git
-    GIT_TAG        master
+    URL https://github.com/TsudaKageyu/minhook/archive/refs/tags/v1.3.3.zip
 )
 FetchContent_MakeAvailable(minhook)
 

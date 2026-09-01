@@ -126,29 +126,7 @@ namespace VRMod {
     }
 
     void WINAPI hooked_DrawIndexed(ID3D11DeviceContext* pContext, UINT IndexCount, UINT StartIndexLocation, INT BaseVertexLocation) {
-        if (!g_rendererInitialized) {
-            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
-            return;
-        }
-
-        UINT numViewports = 1;
-        D3D11_VIEWPORT vp;
-        pContext->RSGetViewports(&numViewports, &vp);
-
-        if (numViewports > 0 && vp.Width > 1000.0f) {
-            D3D11_VIEWPORT leftVp = vp; leftVp.Width /= 2.0f;
-            D3D11_VIEWPORT rightVp = leftVp; rightVp.TopLeftX += leftVp.Width;
-
-            pContext->RSSetViewports(1, &leftVp);
-            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
-
-            pContext->RSSetViewports(1, &rightVp);
-            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
-
-            pContext->RSSetViewports(1, &vp);
-        } else {
-            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
-        }
+        original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
     }
 
     void PerformVRRender(IDXGISwapChain* pSwapChain) {
@@ -206,6 +184,10 @@ namespace VRMod {
         g_context->Draw(3, 0);
 
         ID3D11ShaderResourceView* nullSRV[1] = { nullptr }; g_context->PSSetShaderResources(0, 1, nullSRV);
+        
+        // Copy the processed split-screen image back to the game window so the desktop monitor is split too!
+        g_context->CopyResource(pBackBuffer, g_stereoTexture);
+
         g_context->OMSetRenderTargets(1, &oldRTV, oldDSV);
         g_context->IASetPrimitiveTopology(oldTopology);
         g_context->RSSetViewports(1, &oldVP);
