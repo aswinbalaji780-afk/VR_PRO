@@ -8,8 +8,8 @@ import { exec } from 'node:child_process';
 import * as Sentry from "@sentry/electron/main";
 
 Sentry.init({
-  dsn: "https://examplePublicKey@o0.ingest.sentry.io/0", // TODO: Replace with real DSN
-  debug: true,
+  dsn: "", // Sentry is disabled. TODO: Replace with real DSN to enable crash reporting
+  debug: false,
 });
 
 // Suppress the CSP warning in development

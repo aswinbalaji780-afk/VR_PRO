@@ -35,8 +35,7 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "package.json",
-      "node_modules/**/*"
+      "package.json"
     ],
     "directories": {
       "output": "release"
