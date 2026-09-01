@@ -78,6 +78,9 @@ app.whenReady().then(() => {
 
   // Check for updates (only works in production/packaged app)
   if (app.isPackaged) {
+    autoUpdater.on('error', (err) => {
+      console.error('Error checking for updates:', err);
+    });
     autoUpdater.checkForUpdatesAndNotify();
   }
 
