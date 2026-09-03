@@ -8,4 +8,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   launchInjector: (exeName: string, dirPath?: string) => ipcRenderer.invoke('launch-injector', exeName, dirPath),
   uninstallInjector: (dirPath: string) => ipcRenderer.invoke('uninstall-injector', dirPath),
   selectGame: () => ipcRenderer.invoke('select-game'),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  onUpdateStatus: (callback: (status: string) => void) => {
+    ipcRenderer.on('update-status', (_, status) => callback(status));
+  },
 });

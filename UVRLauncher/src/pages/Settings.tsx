@@ -1,11 +1,41 @@
-import React, { useState } from 'react';
-import { Shield, HardDrive, Zap, Monitor, Save } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Shield, HardDrive, Zap, Monitor, Save, RefreshCw } from 'lucide-react';
 import { NXButton } from '../components/NXButton';
 
 export const Settings: React.FC = () => {
   const [autoInject, setAutoInject] = useState(false);
   const [hardwareAccel, setHardwareAccel] = useState(true);
   const [isSaved, setIsSaved] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
+  const [updateStatus, setUpdateStatus] = useState('');
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+
+  useEffect(() => {
+    if (window.electronAPI?.getAppVersion) {
+      window.electronAPI.getAppVersion().then(ver => setAppVersion(ver)).catch(() => {});
+    }
+
+    if (window.electronAPI?.onUpdateStatus) {
+      window.electronAPI.onUpdateStatus((status) => {
+        setUpdateStatus(status);
+        setIsCheckingUpdates(false);
+      });
+    }
+  }, []);
+
+  const handleCheckUpdates = async () => {
+    if (!window.electronAPI?.checkForUpdates) return;
+    setIsCheckingUpdates(true);
+    setUpdateStatus('Checking GitHub for latest release...');
+    try {
+      const res = await window.electronAPI.checkForUpdates();
+      if (res) setUpdateStatus(res);
+    } catch (e: any) {
+      setUpdateStatus(`Check failed: ${e.message}`);
+    } finally {
+      setIsCheckingUpdates(false);
+    }
+  };
 
   const handleSave = () => {
     setIsSaved(true);
@@ -101,6 +131,33 @@ export const Settings: React.FC = () => {
           <button disabled className="w-14 h-8 rounded-full bg-gray-700 relative cursor-not-allowed">
             <div className="absolute top-1 left-1 w-6 h-6 rounded-full bg-gray-500" />
           </button>
+        </div>
+
+        {/* Automatic Updates & Version Card */}
+        <div className="glass-panel p-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <h3 className="font-bold text-lg">UVR Software Updates</h3>
+                <span className="px-2.5 py-0.5 text-xs font-mono rounded bg-cyan/20 text-cyan border border-cyan/30">
+                  {appVersion ? `v${appVersion}` : 'Checking version...'}
+                </span>
+              </div>
+              <p className="text-sm text-gray-400">
+                {updateStatus || 'Connected to GitHub Continuous Deployment (CD).'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <NXButton 
+                icon={<RefreshCw size={16} className={isCheckingUpdates ? 'animate-spin' : ''} />}
+                onClick={handleCheckUpdates}
+                disabled={isCheckingUpdates}
+              >
+                {isCheckingUpdates ? 'CHECKING...' : 'CHECK FOR UPDATES'}
+              </NXButton>
+            </div>
+          </div>
         </div>
         
       </div>

@@ -77,12 +77,27 @@ app.whenReady().then(() => {
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
 
+    autoUpdater.on('checking-for-update', () => {
+      win?.webContents.send('update-status', 'Checking GitHub for updates...');
+    });
+
     autoUpdater.on('update-available', (info) => {
       console.log('Update available:', info.version);
+      win?.webContents.send('update-status', `Update v${info.version} available! Downloading in background...`);
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+      console.log('Update not available');
+      win?.webContents.send('update-status', `You are using the latest version (v${info.version}).`);
+    });
+
+    autoUpdater.on('download-progress', (progress) => {
+      win?.webContents.send('update-status', `Downloading update: ${Math.round(progress.percent)}%`);
     });
 
     autoUpdater.on('update-downloaded', (info) => {
       console.log('Update downloaded:', info.version);
+      win?.webContents.send('update-status', `Update v${info.version} ready to install!`);
       if (win) {
         dialog.showMessageBox(win, {
           type: 'info',
@@ -102,6 +117,7 @@ app.whenReady().then(() => {
 
     autoUpdater.on('error', (err) => {
       console.error('Error checking for updates:', err);
+      win?.webContents.send('update-status', `Update check error: ${err.message}`);
     });
 
     // Check for updates 3 seconds after window opens
@@ -109,6 +125,24 @@ app.whenReady().then(() => {
       autoUpdater.checkForUpdates();
     }, 3000);
   }
+
+  ipcMain.handle('get-app-version', async () => {
+    return app.getVersion();
+  });
+
+  ipcMain.handle('check-for-updates', async () => {
+    if (!app.isPackaged) {
+      return "Dev Mode: Auto-update only runs in packaged app.";
+    }
+    try {
+      win?.webContents.send('update-status', 'Checking GitHub for updates...');
+      await autoUpdater.checkForUpdates();
+      return "Checking for updates...";
+    } catch (e: any) {
+      win?.webContents.send('update-status', `Update check error: ${e.message}`);
+      return `Error: ${e.message}`;
+    }
+  });
 
   ipcMain.handle('select-game', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -134,49 +168,58 @@ app.whenReady().then(() => {
         reject(new Error("Cannot install mod: Game directory path is missing. Please re-add the game to your library."));
         return;
       }
-      
-      // 1. Update vr_config.ini
-      const iniPath = path.join(__dirname, '../../VRModFramework/vr_config.ini');
-      try {
-        if (fs.existsSync(iniPath)) {
-          let iniContent = fs.readFileSync(iniPath, 'utf8');
-          const processNameNoExt = exeName.replace('.exe', '');
-          iniContent = iniContent.replace(/^ProcessName=.*$/m, `ProcessName=${processNameNoExt}`);
-          fs.writeFileSync(iniPath, iniContent, 'utf8');
-        } else {
-          console.warn('vr_config.ini not found, skipping config update.');
-        }
-      } catch (e) {
-        console.error('Failed to update vr_config.ini', e);
-      }
 
+      // Stateless resolution: look in app resources first (production), then fallback to relative dev tree
+      const prodDxgi = path.join(process.resourcesPath, 'dxgi.dll');
+      const prodIni = path.join(process.resourcesPath, 'vr_config.ini');
+      const devDxgi = path.join(__dirname, '../../VRModFramework/build/Release/dxgi.dll');
+      const devIni = path.join(__dirname, '../../VRModFramework/vr_config.ini');
+
+      const sourceDxgi = fs.existsSync(prodDxgi) ? prodDxgi : devDxgi;
+      const sourceIni = fs.existsSync(prodIni) ? prodIni : devIni;
+
+      if (!fs.existsSync(sourceDxgi)) {
         if (!app.isPackaged) {
-          console.log("Dev Mode: Simulating installation since C++ DLLs are built in the cloud.");
-          resolve(`Successfully installed VR Mod to ${dirPath}! Start the game normally to play in VR.`);
+          resolve(`Dev Mode: Simulated installation for ${exeName} to ${dirPath}.`);
           return;
         }
+        reject(new Error(`VR Mod DLL (dxgi.dll) not found in launcher resources at: ${sourceDxgi}`));
+        return;
+      }
 
-        // 3. Install Proxy DLL & Dependencies
-        // In production, the files are in process.resourcesPath.
-        const sourceDxgi = path.join(process.resourcesPath, 'dxgi.dll');
-        const sourceIni = path.join(process.resourcesPath, 'vr_config.ini');
-        
-        try {
-          if (!fs.existsSync(sourceDxgi)) throw new Error(`Mod DLL not found at: ${sourceDxgi}`);
-          if (!fs.existsSync(sourceIni)) throw new Error(`VR Config not found at: ${sourceIni}`);
+      try {
+        const processNameNoExt = exeName.replace('.exe', '');
 
-          fs.copyFileSync(sourceDxgi, path.join(dirPath, 'dxgi.dll'));
-          fs.copyFileSync(sourceIni, path.join(dirPath, 'vr_config.ini'));
+        // Copy dxgi.dll to game folder
+        fs.copyFileSync(sourceDxgi, path.join(dirPath, 'dxgi.dll'));
 
-          resolve(`Successfully installed VR Mod to ${dirPath}! Start the game normally to play in VR.`);
-        } catch (error: any) {
-          console.error('Copy error:', error);
-          if (error.code === 'EBUSY' || (error.message && error.message.includes('EBUSY'))) {
-            reject(new Error(`The game is currently running! Please completely close ${exeName} (check Task Manager to ensure it is not running in the background), then try again.`));
-          } else {
-            reject(new Error(`Failed to copy VR mod to game folder: ${error.message}`));
-          }
+        // Prepare vr_config.ini dynamically in memory (100% stateless across all machines)
+        let iniContent = "";
+        if (fs.existsSync(sourceIni)) {
+          iniContent = fs.readFileSync(sourceIni, 'utf8');
+        } else {
+          iniContent = "[Target]\nProcessName=game\n\n[HeadTracking]\nMode=Mouse\nMouseSensitivityX=1000.0\nMouseSensitivityY=1000.0\nInvertY=false\n\n[Debug]\nForceSplitScreen=true\n";
         }
+
+        // Dynamically set game process name and ensure desktop split screen is enabled
+        iniContent = iniContent.replace(/^ProcessName=.*$/m, `ProcessName=${processNameNoExt}`);
+        if (!iniContent.includes("ForceSplitScreen=")) {
+          iniContent += "\n[Debug]\nForceSplitScreen=true\n";
+        } else {
+          iniContent = iniContent.replace(/^ForceSplitScreen=.*$/m, `ForceSplitScreen=true`);
+        }
+
+        fs.writeFileSync(path.join(dirPath, 'vr_config.ini'), iniContent, 'utf8');
+
+        resolve(`Successfully installed VR Mod to ${dirPath}! Start ${exeName} normally to play in VR.`);
+      } catch (error: any) {
+        console.error('Copy error:', error);
+        if (error.code === 'EBUSY' || (error.message && error.message.includes('EBUSY'))) {
+          reject(new Error(`The game is currently running! Please completely close ${exeName} (check Task Manager to ensure it is not running in the background), then try again.`));
+        } else {
+          reject(new Error(`Failed to copy VR mod to game folder: ${error.message}`));
+        }
+      }
     });
   });
 
