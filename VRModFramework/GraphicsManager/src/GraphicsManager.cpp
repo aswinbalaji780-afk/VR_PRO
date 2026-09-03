@@ -19,12 +19,57 @@ namespace VRMod {
         return instance;
     }
 
+    static std::string GetConfigPath(HMODULE hModule) {
+        char path[MAX_PATH];
+        GetModuleFileNameA(hModule, path, MAX_PATH);
+        std::string fullPath(path);
+        size_t lastSlash = fullPath.find_last_of("\\/");
+        if (lastSlash != std::string::npos) {
+            std::string sameDir = fullPath.substr(0, lastSlash) + "\\vr_config.ini";
+            if (GetFileAttributesA(sameDir.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                return sameDir;
+            }
+        }
+        return ".\\vr_config.ini";
+    }
+
     void WatchdogThread(GraphicsManager* manager) {
+#ifdef _WIN32
+        // 1. Check if user or profile explicitly forced an API in vr_config.ini
+        char apiOverride[32] = { 0 };
+        std::string cfgPath = GetConfigPath(manager->m_hModule);
+        GetPrivateProfileStringA("Graphics", "API", "Auto", apiOverride, sizeof(apiOverride), cfgPath.c_str());
+
+        if (_stricmp(apiOverride, "D3D12") == 0) {
+            manager->m_activeApi = GraphicsApi::D3D12;
+            manager->m_activeHook = std::make_unique<DX12HookImpl>();
+        } else if (_stricmp(apiOverride, "D3D11") == 0) {
+            manager->m_activeApi = GraphicsApi::D3D11;
+            manager->m_activeHook = std::make_unique<DX11HookImpl>();
+        } else if (_stricmp(apiOverride, "Vulkan") == 0) {
+            manager->m_activeApi = GraphicsApi::Vulkan;
+            manager->m_activeHook = std::make_unique<VulkanHookImpl>();
+        } else if (_stricmp(apiOverride, "OpenGL") == 0) {
+            manager->m_activeApi = GraphicsApi::OpenGL;
+            manager->m_activeHook = std::make_unique<OpenGLHookImpl>();
+        }
+
+        if (manager->m_activeHook) {
+            manager->m_activeHook->Initialize(manager->m_hModule);
+            return;
+        }
+#endif
+
+        // 2. Dynamic Auto-Detection:
+        // - Vulkan games load vulkan-1.dll natively
+        // - DX12 games load d3d12.dll (and may load d3d11.dll for overlays)
+        // - DX11 games only load d3d11.dll
+        // - OpenGL games load opengl32.dll
         while (true) {
 #ifdef _WIN32
-            if (GetModuleHandleA("d3d11.dll")) {
-                manager->m_activeApi = GraphicsApi::D3D11;
-                manager->m_activeHook = std::make_unique<DX11HookImpl>();
+            if (GetModuleHandleA("vulkan-1.dll")) {
+                manager->m_activeApi = GraphicsApi::Vulkan;
+                manager->m_activeHook = std::make_unique<VulkanHookImpl>();
                 break;
             }
             if (GetModuleHandleA("d3d12.dll")) {
@@ -32,9 +77,9 @@ namespace VRMod {
                 manager->m_activeHook = std::make_unique<DX12HookImpl>();
                 break;
             }
-            if (GetModuleHandleA("vulkan-1.dll")) {
-                manager->m_activeApi = GraphicsApi::Vulkan;
-                manager->m_activeHook = std::make_unique<VulkanHookImpl>();
+            if (GetModuleHandleA("d3d11.dll")) {
+                manager->m_activeApi = GraphicsApi::D3D11;
+                manager->m_activeHook = std::make_unique<DX11HookImpl>();
                 break;
             }
             if (GetModuleHandleA("opengl32.dll")) {
