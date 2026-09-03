@@ -212,10 +212,39 @@ namespace VRMod {
                 output.pos = float4(output.uv * float2(2, -2) + float2(-1, 1), 0, 1);
                 return output;
             }
+
+            static const float k1 = 0.22f; // Distortion coefficient 1
+            static const float k2 = 0.24f; // Distortion coefficient 2
+            static const float IPD_SHIFT = 0.05f; // Inter-pupillary distance shift
+
+            float2 ApplyDistortion(float2 uv, float2 center) {
+                float2 r = uv - center;
+                float r2 = r.x * r.x + r.y * r.y;
+                float distortion = 1.0f + (k1 * r2) + (k2 * r2 * r2);
+                return center + (r * distortion);
+            }
+
             float4 PSMain(PSInput input) : SV_TARGET {
-                float2 uv = input.uv;
-                uv.x = fmod(uv.x * 2.0f, 1.0f); // Split screen logic
-                return tex.Sample(sam, uv);
+                float2 texCoord = input.uv;
+                bool isLeftEye = texCoord.x < 0.5f;
+                float2 localUV, center, distortedUV;
+                
+                if (isLeftEye) {
+                    localUV = float2(texCoord.x * 2.0f, texCoord.y);
+                    center = float2(0.5f + IPD_SHIFT, 0.5f);
+                } else {
+                    localUV = float2((texCoord.x - 0.5f) * 2.0f, texCoord.y);
+                    center = float2(0.5f - IPD_SHIFT, 0.5f);
+                }
+                
+                distortedUV = ApplyDistortion(localUV, center);
+                
+                // Perfectly trimmed edges / concave lens vignette border
+                if (distortedUV.x < 0.0f || distortedUV.x > 1.0f || distortedUV.y < 0.0f || distortedUV.y > 1.0f) {
+                    return float4(0.0f, 0.0f, 0.0f, 1.0f);
+                }
+                
+                return tex.Sample(sam, distortedUV);
             }
         )";
 
