@@ -56,7 +56,8 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         cd UVRLauncher
-        gh release create "v1.0.${{ github.run_number }}" ./release/*.exe ./release/latest.yml ./release/*.blockmap --title "Update v1.0.${{ github.run_number }}" --generate-notes --clobber
+        $assets = Get-ChildItem -Path ./release -File | Where-Object { $_.Name -match '\.(exe|yml|blockmap)$' } | Select-Object -ExpandProperty FullName
+        gh release create "v1.0.${{ github.run_number }}" $assets --title "Update v1.0.${{ github.run_number }}" --generate-notes
       
     - name: Upload Desktop App Installer Artifact
       uses: actions/upload-artifact@v4
