@@ -37,7 +37,7 @@ jobs:
       with:
         node-version: 20
 
-    - name: Build React & Electron Launcher
+    - name: Build and Publish React & Electron Launcher
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
@@ -48,16 +48,9 @@ jobs:
         node -e "const fs = require('fs'); const p = JSON.parse(fs.readFileSync('package.json')); p.version = '1.0.${{ github.run_number }}'; fs.writeFileSync('package.json', JSON.stringify(p, null, 2));"
         
         npx vite build
-        npx electron-builder --win
+        npx electron-builder --win --publish always
       
-    - name: Publish Release using GitHub CLI
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        cd UVRLauncher
-        gh release create "v1.0.${{ github.run_number }}" ./release/*.exe ./release/latest.yml --title "Update v1.0.${{ github.run_number }}" --generate-notes
-        
-    - name: Upload Desktop App Installer
+    - name: Upload Desktop App Installer Artifact
       uses: actions/upload-artifact@v4
       with:
         name: UVRLauncher-Windows

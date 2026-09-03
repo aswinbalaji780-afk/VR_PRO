@@ -486,12 +486,10 @@ namespace OpenXRLayer {
                 projectionViews[i].fov = views[i].fov;
                 projectionViews[i].subImage.swapchain = g_swapchain;
                 
-                // Instead of splitting the monitor in half, show the FULL game window to BOTH eyes
-                // This creates a perfect stereoscopic 2D theater mode, which is the only reliable way 
-                // to inject non-VR games universally without engine-specific 3D projection hacks.
-                projectionViews[i].subImage.imageRect.offset.x = 0;
+                // Side-by-Side (SBS) split: Left eye samples [0, 1440], Right eye samples [1440, 2880]
+                projectionViews[i].subImage.imageRect.offset.x = (i == 0) ? 0 : 1440;
                 projectionViews[i].subImage.imageRect.offset.y = 0;
-                projectionViews[i].subImage.imageRect.extent.width = 2880;
+                projectionViews[i].subImage.imageRect.extent.width = 1440;
                 projectionViews[i].subImage.imageRect.extent.height = 1600;
                 projectionViews[i].subImage.imageArrayIndex = 0;
             }

@@ -34,7 +34,7 @@ PFN_DrawIndexed original_DrawIndexed = nullptr;
 namespace VRMod {
 
 
-    static bool g_forceSplitScreen = false;
+    static bool g_forceSplitScreen = true;
 
     // Globals for D3D11 Hooking
     static bool g_rendererInitialized = false;
@@ -66,7 +66,18 @@ namespace VRMod {
     SamplerState SampleType : register(s0);
     struct PixelInputType { float4 position : SV_POSITION; float2 tex : TEXCOORD0; };
     float4 main(PixelInputType input) : SV_TARGET {
-        return shaderTexture.Sample(SampleType, input.tex);
+        float2 uv = input.tex;
+        // Side-by-Side (SBS) split:
+        // Left eye (0.0 to 0.5) maps to full (0.0 to 1.0)
+        // Right eye (0.5 to 1.0) maps to full (0.0 to 1.0)
+        float eyeU = (uv.x < 0.5f) ? (uv.x * 2.0f) : ((uv.x - 0.5f) * 2.0f);
+        float eyeV = uv.y;
+        
+        // Stereoscopic IPD parallax offset between left and right eye
+        float ipdOffset = (uv.x < 0.5f) ? -0.008f : 0.008f;
+        float2 sampleUV = float2(clamp(eyeU + ipdOffset, 0.0f, 1.0f), eyeV);
+        
+        return shaderTexture.Sample(SampleType, sampleUV);
     })";
 
     bool InitializeRenderer(IDXGISwapChain* pSwapChain) {
@@ -126,53 +137,102 @@ namespace VRMod {
     }
 
     void WINAPI hooked_DrawIndexed(ID3D11DeviceContext* pContext, UINT IndexCount, UINT StartIndexLocation, INT BaseVertexLocation) {
-        if (!VRMod::OpenXRLayer::IsInitialized() && !g_forceSplitScreen) {
-            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
+        original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
+    }
+
+    void RenderSplitScreenToBackBuffer(ID3D11Texture2D* pBackBuffer) {
+        if (!pBackBuffer || !g_device || !g_context || !g_vertexShader || !g_pixelShader || !g_copySRV) return;
+
+        D3D11_TEXTURE2D_DESC desc;
+        pBackBuffer->GetDesc(&desc);
+
+        ID3D11RenderTargetView* backBufferRTV = nullptr;
+        D3D11_RENDER_TARGET_VIEW_DESC rtvDesc = {};
+        rtvDesc.Format = desc.Format;
+        rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+        if (FAILED(g_device->CreateRenderTargetView(pBackBuffer, &rtvDesc, &backBufferRTV))) {
             return;
         }
 
+        // Save old pipeline state
+        ID3D11RenderTargetView* oldRTV = nullptr;
+        ID3D11DepthStencilView* oldDSV = nullptr;
+        g_context->OMGetRenderTargets(1, &oldRTV, &oldDSV);
+        D3D11_PRIMITIVE_TOPOLOGY oldTopology;
+        g_context->IAGetPrimitiveTopology(&oldTopology);
         UINT numViewports = 1;
-        D3D11_VIEWPORT vp;
-        pContext->RSGetViewports(&numViewports, &vp);
+        D3D11_VIEWPORT oldVP;
+        g_context->RSGetViewports(&numViewports, &oldVP);
+        ID3D11RasterizerState* oldRS = nullptr;
+        g_context->RSGetState(&oldRS);
+        ID3D11DepthStencilState* oldDS = nullptr;
+        UINT oldStencilRef = 0;
+        g_context->OMGetDepthStencilState(&oldDS, &oldStencilRef);
+        ID3D11BlendState* oldBlend = nullptr;
+        FLOAT oldBlendFactor[4];
+        UINT oldSampleMask = 0xFFFFFFFF;
+        g_context->OMGetBlendState(&oldBlend, oldBlendFactor, &oldSampleMask);
 
-        // Only split main render passes (ignore small shadow maps / UI passes)
-        if (numViewports > 0 && vp.Width > 1000.0f) {
-            D3D11_VIEWPORT leftVp = vp;
-            leftVp.Width /= 2.0f;
-            
-            D3D11_VIEWPORT rightVp = leftVp;
-            rightVp.TopLeftX += leftVp.Width;
+        // Set Render Target to BackBuffer
+        g_context->OMSetRenderTargets(1, &backBufferRTV, NULL);
+        g_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        g_context->IASetInputLayout(NULL);
 
-            // Draw Left Eye
-            pContext->RSSetViewports(1, &leftVp);
-            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
+        D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)desc.Width, (float)desc.Height, 0.0f, 1.0f };
+        g_context->RSSetViewports(1, &vp);
+        g_context->RSSetState(g_rasterState);
+        g_context->OMSetDepthStencilState(g_depthState, 0);
+        g_context->OMSetBlendState(g_blendState, NULL, 0xFFFFFFFF);
 
-            // Draw Right Eye
-            pContext->RSSetViewports(1, &rightVp);
-            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
-            
-            // Restore Original
-            pContext->RSSetViewports(1, &vp);
-        } else {
-            original_DrawIndexed(pContext, IndexCount, StartIndexLocation, BaseVertexLocation);
-        }
+        g_context->VSSetShader(g_vertexShader, NULL, 0);
+        g_context->PSSetShader(g_pixelShader, NULL, 0);
+        g_context->PSSetShaderResources(0, 1, &g_copySRV);
+        g_context->PSSetSamplers(0, 1, &g_samplerState);
+
+        // Draw Fullscreen Quad (3 vertices generates full-screen triangle in vertex shader)
+        g_context->Draw(3, 0);
+
+        // Unbind SRV to prevent resource hazards
+        ID3D11ShaderResourceView* nullSRV[1] = { nullptr };
+        g_context->PSSetShaderResources(0, 1, nullSRV);
+
+        // Restore old pipeline state
+        g_context->OMSetRenderTargets(1, &oldRTV, oldDSV);
+        g_context->IASetPrimitiveTopology(oldTopology);
+        g_context->RSSetViewports(1, &oldVP);
+        g_context->RSSetState(oldRS);
+        g_context->OMSetDepthStencilState(oldDS, oldStencilRef);
+        g_context->OMSetBlendState(oldBlend, oldBlendFactor, oldSampleMask);
+
+        if (oldRTV) oldRTV->Release();
+        if (oldDSV) oldDSV->Release();
+        if (oldRS) oldRS->Release();
+        if (oldDS) oldDS->Release();
+        if (oldBlend) oldBlend->Release();
+        backBufferRTV->Release();
     }
 
     void PerformVRRender(IDXGISwapChain* pSwapChain) {
         if (!g_rendererInitialized) if (!InitializeRenderer(pSwapChain)) return;
         if (!g_context) return;
 
-        if (!VRMod::OpenXRLayer::IsInitialized() && !g_forceSplitScreen) return;
-
         ID3D11Texture2D* pBackBuffer = nullptr;
         if (FAILED(pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer))) return;
             
-        // Copy natively split backbuffer to our g_copyTexture (so we can use it as SRV)
+        // Copy original game backbuffer to our g_copyTexture
         g_context->CopyResource(g_copyTexture, pBackBuffer);
         
+        // Render Side-by-Side (SBS) split screen directly on desktop backbuffer
+        if (g_forceSplitScreen || !VRMod::OpenXRLayer::IsInitialized()) {
+            RenderSplitScreenToBackBuffer(pBackBuffer);
+        }
+
         pBackBuffer->Release();
 
-        VRMod::OpenXRLayer::RenderFrame();
+        // If a VR headset is active, also transmit frame to OpenXR
+        if (VRMod::OpenXRLayer::IsInitialized()) {
+            VRMod::OpenXRLayer::RenderFrame();
+        }
     }
 
     HRESULT WINAPI hooked_Present(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {
@@ -269,8 +329,11 @@ namespace VRMod {
 
         char forceBuf[16];
         std::string configPath = GetConfigPath();
-        if (GetPrivateProfileStringA("Debug", "ForceSplitScreen", "false", forceBuf, 16, configPath.c_str())) {
-            if (_stricmp(forceBuf, "true") == 0) {
+        if (GetPrivateProfileStringA("Debug", "ForceSplitScreen", "true", forceBuf, 16, configPath.c_str())) {
+            if (_stricmp(forceBuf, "false") == 0) {
+                g_forceSplitScreen = false;
+                Log("DEBUG: ForceSplitScreen is disabled.");
+            } else {
                 g_forceSplitScreen = true;
                 Log("DEBUG: ForceSplitScreen is enabled.");
             }

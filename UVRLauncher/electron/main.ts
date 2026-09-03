@@ -67,15 +67,47 @@ app.on('activate', () => {
   }
 });
 
+app.setAppUserModelId('com.nexusxr.uvrlauncher');
+
 app.whenReady().then(() => {
   createWindow();
 
   // Check for updates (only works in production/packaged app)
   if (app.isPackaged) {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on('update-available', (info) => {
+      console.log('Update available:', info.version);
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      console.log('Update downloaded:', info.version);
+      if (win) {
+        dialog.showMessageBox(win, {
+          type: 'info',
+          title: 'Update Ready to Install',
+          message: `Version ${info.version} of UVR Launcher has been downloaded!`,
+          detail: 'Restart the application now to apply the update automatically.',
+          buttons: ['Restart and Update', 'Later'],
+          defaultId: 0,
+          cancelId: 1
+        }).then((returnValue) => {
+          if (returnValue.response === 0) {
+            autoUpdater.quitAndInstall();
+          }
+        });
+      }
+    });
+
     autoUpdater.on('error', (err) => {
       console.error('Error checking for updates:', err);
     });
-    autoUpdater.checkForUpdatesAndNotify();
+
+    // Check for updates 3 seconds after window opens
+    setTimeout(() => {
+      autoUpdater.checkForUpdates();
+    }, 3000);
   }
 
   ipcMain.handle('select-game', async () => {
