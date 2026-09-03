@@ -35,19 +35,156 @@ namespace VRMod {
     static PFN_Present original_Present = nullptr;
     static PFN_Present1 original_Present1 = nullptr;
 
-    void PerformVRRenderDX12(IDXGISwapChain* pSwapChain) {
+    static ID3D12Resource* g_copyTexture = nullptr;
+    static UINT g_copyWidth = 0;
+    static UINT g_copyHeight = 0;
+    static DXGI_FORMAT g_copyFormat = DXGI_FORMAT_UNKNOWN;
+
+    void RenderSplitScreenToBackBufferDX12(IDXGISwapChain* pSwapChain) {
+        if (!pSwapChain) return;
+
         if (!g_commandQueue) {
-            // In DX12, the "device" bound to the swap chain is actually the command queue
-            if (SUCCEEDED(pSwapChain->GetDevice(__uuidof(ID3D12CommandQueue), (void**)&g_commandQueue))) {
-                std::cout << "[DX12Hook] Intercepted Command Queue!\n";
+            if (FAILED(pSwapChain->GetDevice(__uuidof(ID3D12CommandQueue), (void**)&g_commandQueue))) {
+                return;
             }
         }
-        
-        ID3D12Resource* pBackBuffer = nullptr;
-        if (SUCCEEDED(pSwapChain->GetBuffer(0, __uuidof(ID3D12Resource), (void**)&pBackBuffer))) {
-            g_stereoTexture = pBackBuffer; // Fallback, updated later by OpenXR copy
-            pBackBuffer->Release();
+        if (!g_device && g_commandQueue) {
+            if (FAILED(g_commandQueue->GetDevice(__uuidof(ID3D12Device), (void**)&g_device))) {
+                return;
+            }
         }
+        if (!g_rendererInitialized && g_device) {
+            if (!DX12HookImpl::InitializeRendererDX12(g_device)) return;
+        }
+
+        UINT backBufferIdx = 0;
+        IDXGISwapChain3* pSwapChain3 = nullptr;
+        if (SUCCEEDED(pSwapChain->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&pSwapChain3))) {
+            backBufferIdx = pSwapChain3->GetCurrentBackBufferIndex();
+            pSwapChain3->Release();
+        }
+
+        ID3D12Resource* pBackBuffer = nullptr;
+        if (FAILED(pSwapChain->GetBuffer(backBufferIdx, __uuidof(ID3D12Resource), (void**)&pBackBuffer)) || !pBackBuffer) {
+            return;
+        }
+
+        D3D12_RESOURCE_DESC desc = pBackBuffer->GetDesc();
+
+        if (!g_copyTexture || g_copyWidth != desc.Width || g_copyHeight != desc.Height || g_copyFormat != desc.Format) {
+            if (g_copyTexture) { g_copyTexture->Release(); g_copyTexture = nullptr; }
+
+            D3D12_HEAP_PROPERTIES heapProps = {};
+            heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+            D3D12_RESOURCE_DESC copyDesc = desc;
+            copyDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+            if (SUCCEEDED(g_device->CreateCommittedResource(
+                &heapProps,
+                D3D12_HEAP_FLAG_NONE,
+                &copyDesc,
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                nullptr,
+                __uuidof(ID3D12Resource),
+                (void**)&g_copyTexture)))
+            {
+                g_copyWidth = (UINT)desc.Width;
+                g_copyHeight = (UINT)desc.Height;
+                g_copyFormat = desc.Format;
+            } else {
+                pBackBuffer->Release();
+                return;
+            }
+        }
+
+        g_commandAllocator->Reset();
+        g_commandList->Reset(g_commandAllocator, g_pso);
+
+        D3D12_RESOURCE_BARRIER preCopy[2] = {};
+        preCopy[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        preCopy[0].Transition.pResource = pBackBuffer;
+        preCopy[0].Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        preCopy[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        preCopy[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        preCopy[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        preCopy[1].Transition.pResource = g_copyTexture;
+        preCopy[1].Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        preCopy[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+        preCopy[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        g_commandList->ResourceBarrier(2, preCopy);
+        g_commandList->CopyResource(g_copyTexture, pBackBuffer);
+
+        D3D12_RESOURCE_BARRIER postCopy[2] = {};
+        postCopy[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        postCopy[0].Transition.pResource = pBackBuffer;
+        postCopy[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        postCopy[0].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        postCopy[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        postCopy[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        postCopy[1].Transition.pResource = g_copyTexture;
+        postCopy[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        postCopy[1].Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+        postCopy[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        g_commandList->ResourceBarrier(2, postCopy);
+
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Format = g_copyFormat;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+        g_device->CreateShaderResourceView(g_copyTexture, &srvDesc, g_srvHeap->GetCPUDescriptorHandleForHeapStart());
+
+        D3D12_RENDER_TARGET_VIEW_DESC rtvDesc = {};
+        rtvDesc.Format = desc.Format;
+        rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+        g_device->CreateRenderTargetView(pBackBuffer, &rtvDesc, g_rtvHeap->GetCPUDescriptorHandleForHeapStart());
+
+        g_commandList->SetGraphicsRootSignature(g_rootSignature);
+        ID3D12DescriptorHeap* heaps[] = { g_srvHeap };
+        g_commandList->SetDescriptorHeaps(1, heaps);
+        g_commandList->SetGraphicsRootDescriptorTable(0, g_srvHeap->GetGPUDescriptorHandleForHeapStart());
+
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = g_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        g_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+        D3D12_VIEWPORT vp = { 0.0f, 0.0f, (float)desc.Width, (float)desc.Height, 0.0f, 1.0f };
+        D3D12_RECT scissor = { 0, 0, (LONG)desc.Width, (LONG)desc.Height };
+        g_commandList->RSSetViewports(1, &vp);
+        g_commandList->RSSetScissorRects(1, &scissor);
+        g_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        g_commandList->DrawInstanced(3, 1, 0, 0);
+
+        D3D12_RESOURCE_BARRIER barrierFinal = {};
+        barrierFinal.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barrierFinal.Transition.pResource = pBackBuffer;
+        barrierFinal.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        barrierFinal.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+        barrierFinal.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+
+        g_commandList->ResourceBarrier(1, &barrierFinal);
+        g_commandList->Close();
+
+        ID3D12CommandList* ppCommandLists[] = { g_commandList };
+        g_commandQueue->ExecuteCommandLists(1, ppCommandLists);
+
+        const UINT64 fence = g_fenceValue;
+        g_commandQueue->Signal(g_fence, fence);
+        g_fenceValue++;
+        if (g_fence->GetCompletedValue() < fence) {
+            g_fence->SetEventOnCompletion(fence, g_fenceEvent);
+            WaitForSingleObject(g_fenceEvent, INFINITE);
+        }
+
+        pBackBuffer->Release();
+    }
+
+    void PerformVRRenderDX12(IDXGISwapChain* pSwapChain) {
+        RenderSplitScreenToBackBufferDX12(pSwapChain);
     }
 
     HRESULT WINAPI hooked_Present_DX12(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags) {

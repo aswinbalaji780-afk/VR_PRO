@@ -136,9 +136,9 @@ export const MyGames: React.FC<MyGamesProps> = ({ setCurrentView, games, setGame
                 >
                   <Play size={16} className={`mr-2 ${game.status === 'Installing...' ? 'animate-pulse' : ''} ${game.status === 'Installed' ? 'group-hover/btn:hidden' : ''}`} /> 
                   <span className={game.status === 'Installed' ? 'group-hover/btn:hidden' : ''}>
-                    {game.status === 'Installed' ? 'Ready to Play' : game.status === 'Installing...' ? 'Installing...' : 'Install Mod'}
+                    {game.status === 'Installed' ? 'VR Ready' : game.status === 'Installing...' ? 'Installing VR...' : 'Install VR'}
                   </span>
-                  <span className={`hidden font-bold ${game.status === 'Installed' ? 'group-hover/btn:inline' : ''}`}>UNINSTALL</span>
+                  <span className={`hidden font-bold ${game.status === 'Installed' ? 'group-hover/btn:inline' : ''}`}>Uninstall VR</span>
                 </button>
                 <button 
                   onClick={(e) => { e.stopPropagation(); setCurrentView('profiles'); }}
