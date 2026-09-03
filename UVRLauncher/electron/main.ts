@@ -9,6 +9,18 @@ import { exec } from 'node:child_process';
 // Suppress the CSP warning in development
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
 
+// Global error guards to prevent silent crashes across any machine
+process.on('uncaughtException', (err) => {
+  console.error('Unhandled Exception in Main Process:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection in Main Process:', reason);
+});
+
+// Prevent GPU driver resets on laptops from killing the app
+app.commandLine.appendSwitch('disable-gpu-process-crash-limit');
+
 // CLI version check (like java --version)
 if (process.argv.includes('--version') || process.argv.includes('-v')) {
   process.stdout.write(`UVR Launcher v${app.getVersion()}\n`);
@@ -81,8 +93,8 @@ app.whenReady().then(() => {
 
   // Check for updates (only works in production/packaged app)
   if (app.isPackaged) {
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoDownload = false; // Safe: don't freeze or saturate network silently
+    autoUpdater.autoInstallOnAppQuit = false;
 
     autoUpdater.on('checking-for-update', () => {
       win?.webContents.send('update-status', 'Checking GitHub for updates...');
@@ -90,7 +102,24 @@ app.whenReady().then(() => {
 
     autoUpdater.on('update-available', (info) => {
       console.log('Update available:', info.version);
-      win?.webContents.send('update-status', `Update v${info.version} available! Downloading in background...`);
+      win?.webContents.send('update-status', `Update v${info.version} available!`);
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'New Update Available',
+        message: `Version ${info.version} of UVR Launcher is available!`,
+        detail: 'Would you like to download this update in the background now?',
+        buttons: ['Download Update', 'Later'],
+        defaultId: 0,
+        cancelId: 1
+      }).then((result) => {
+        if (result.response === 0) {
+          win?.webContents.send('update-status', 'Downloading update in background...');
+          autoUpdater.downloadUpdate().catch((dlErr) => {
+            console.error('Download error:', dlErr);
+            win?.webContents.send('update-status', `Download failed: ${dlErr.message}`);
+          });
+        }
+      }).catch(() => {});
     });
 
     autoUpdater.on('update-not-available', (info) => {
@@ -105,32 +134,36 @@ app.whenReady().then(() => {
     autoUpdater.on('update-downloaded', (info) => {
       console.log('Update downloaded:', info.version);
       win?.webContents.send('update-status', `Update v${info.version} ready to install!`);
-      if (win) {
-        dialog.showMessageBox(win, {
-          type: 'info',
-          title: 'Update Ready to Install',
-          message: `Version ${info.version} of UVR Launcher has been downloaded!`,
-          detail: 'Restart the application now to apply the update automatically.',
-          buttons: ['Restart and Update', 'Later'],
-          defaultId: 0,
-          cancelId: 1
-        }).then((returnValue) => {
-          if (returnValue.response === 0) {
-            autoUpdater.quitAndInstall();
-          }
-        });
-      }
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'Update Ready to Install',
+        message: `Version ${info.version} of UVR Launcher has been downloaded!`,
+        detail: 'Click Restart to install the update now.',
+        buttons: ['Restart Now', 'Install on Exit'],
+        defaultId: 0,
+        cancelId: 1
+      }).then((returnValue) => {
+        if (returnValue.response === 0) {
+          autoUpdater.quitAndInstall();
+        } else {
+          autoUpdater.autoInstallOnAppQuit = true;
+        }
+      }).catch(() => {});
     });
 
     autoUpdater.on('error', (err) => {
       console.error('Error checking for updates:', err);
-      win?.webContents.send('update-status', `Update check error: ${err.message}`);
+      win?.webContents.send('update-status', `Update status: ${err.message || 'Check complete'}`);
     });
 
-    // Check for updates 3 seconds after window opens
+    // Check for updates 5 seconds after launch (non-blocking)
     setTimeout(() => {
-      autoUpdater.checkForUpdates();
-    }, 3000);
+      try {
+        autoUpdater.checkForUpdates().catch(e => console.warn('Background update check notice:', e.message));
+      } catch (e) {
+        console.warn('Silent update catch:', e);
+      }
+    }, 5000);
   }
 
   ipcMain.handle('get-app-version', async () => {
@@ -143,13 +176,17 @@ app.whenReady().then(() => {
     }
     try {
       win?.webContents.send('update-status', 'Checking GitHub for updates...');
-      await autoUpdater.checkForUpdates();
-      return "Checking for updates...";
+      const checkResult = await autoUpdater.checkForUpdates();
+      if (!checkResult || !checkResult.updateInfo) {
+        return "No updates found.";
+      }
+      return `Found v${checkResult.updateInfo.version}`;
     } catch (e: any) {
-      win?.webContents.send('update-status', `Update check error: ${e.message}`);
-      return `Error: ${e.message}`;
+      win?.webContents.send('update-status', `Update check: ${e.message}`);
+      return `Status: ${e.message}`;
     }
   });
+
 
   ipcMain.handle('select-game', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
