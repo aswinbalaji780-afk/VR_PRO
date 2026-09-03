@@ -64,20 +64,43 @@ namespace VRMod {
     const char* g_psCode = R"(
     Texture2D shaderTexture : register(t0);
     SamplerState SampleType : register(s0);
-    struct PixelInputType { float4 position : SV_POSITION; float2 tex : TEXCOORD0; };
+    struct PixelInputType {
+        float4 position : SV_POSITION;
+        float2 tex : TEXCOORD0;
+    };
+
+    static const float k1 = 0.22f; // Distortion coefficient 1
+    static const float k2 = 0.24f; // Distortion coefficient 2
+    static const float IPD_SHIFT = 0.05f; // Inter-pupillary distance shift
+
+    float2 ApplyDistortion(float2 uv, float2 center) {
+        float2 r = uv - center;
+        float r2 = r.x * r.x + r.y * r.y;
+        float distortion = 1.0f + (k1 * r2) + (k2 * r2 * r2);
+        return center + (r * distortion);
+    }
+
     float4 main(PixelInputType input) : SV_TARGET {
-        float2 uv = input.tex;
-        // Side-by-Side (SBS) split:
-        // Left eye (0.0 to 0.5) maps to full (0.0 to 1.0)
-        // Right eye (0.5 to 1.0) maps to full (0.0 to 1.0)
-        float eyeU = (uv.x < 0.5f) ? (uv.x * 2.0f) : ((uv.x - 0.5f) * 2.0f);
-        float eyeV = uv.y;
+        float2 texCoord = input.tex;
+        bool isLeftEye = texCoord.x < 0.5f;
+        float2 localUV, center, distortedUV;
         
-        // Stereoscopic IPD parallax offset between left and right eye
-        float ipdOffset = (uv.x < 0.5f) ? -0.008f : 0.008f;
-        float2 sampleUV = float2(clamp(eyeU + ipdOffset, 0.0f, 1.0f), eyeV);
+        if (isLeftEye) {
+            localUV = float2(texCoord.x * 2.0f, texCoord.y);
+            center = float2(0.5f + IPD_SHIFT, 0.5f);
+        } else {
+            localUV = float2((texCoord.x - 0.5f) * 2.0f, texCoord.y);
+            center = float2(0.5f - IPD_SHIFT, 0.5f);
+        }
         
-        return shaderTexture.Sample(SampleType, sampleUV);
+        distortedUV = ApplyDistortion(localUV, center);
+        
+        // Perfectly trimmed edges / concave lens vignette border
+        if (distortedUV.x < 0.0f || distortedUV.x > 1.0f || distortedUV.y < 0.0f || distortedUV.y > 1.0f) {
+            return float4(0.0f, 0.0f, 0.0f, 1.0f);
+        }
+        
+        return shaderTexture.Sample(SampleType, distortedUV);
     })";
 
     bool InitializeRenderer(IDXGISwapChain* pSwapChain) {

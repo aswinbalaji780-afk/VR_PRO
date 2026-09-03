@@ -171,7 +171,11 @@ app.whenReady().then(() => {
           resolve(`Successfully installed VR Mod to ${dirPath}! Start the game normally to play in VR.`);
         } catch (error: any) {
           console.error('Copy error:', error);
-          reject(new Error(`Failed to copy VR mod to game folder: ${error.message}`));
+          if (error.code === 'EBUSY' || (error.message && error.message.includes('EBUSY'))) {
+            reject(new Error(`The game is currently running! Please completely close ${exeName} (check Task Manager to ensure it is not running in the background), then try again.`));
+          } else {
+            reject(new Error(`Failed to copy VR mod to game folder: ${error.message}`));
+          }
         }
     });
   });
