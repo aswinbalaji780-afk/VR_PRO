@@ -9,6 +9,13 @@ import { exec } from 'node:child_process';
 // Suppress the CSP warning in development
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
 
+// CLI version check (like java --version)
+if (process.argv.includes('--version') || process.argv.includes('-v')) {
+  process.stdout.write(`UVR Launcher v${app.getVersion()}\n`);
+  console.log(`UVR Launcher v${app.getVersion()}`);
+  app.exit(0);
+}
+
 // The built directory structure
 //
 // ├─┬─┬ dist

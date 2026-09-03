@@ -42,18 +42,23 @@
     "win": {
       "target": "nsis"
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "UVR Launcher",
+      "uninstallDisplayName": "UVR Launcher"
+    },
     "mac": {
       "target": "dmg",
       "category": "public.app-category.games"
     },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "aswinbalaji780-afk",
-        "repo": "VR_PRO",
-        "releaseType": "release"
-      }
-    ],
+    "publish": {
+      "provider": "github",
+      "owner": "aswinbalaji780-afk",
+      "repo": "VR_PRO"
+    },
     "extraResources": [
       {
         "from": "../VRModFramework/build/Release/dxgi.dll",
