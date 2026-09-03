@@ -4,13 +4,7 @@ import fs from 'node:fs';
 import { autoUpdater } from 'electron-updater';
 import { exec } from 'node:child_process';
 
-// @ts-ignore
-import * as Sentry from "@sentry/electron/main";
 
-Sentry.init({
-  dsn: "", // Sentry is disabled. TODO: Replace with real DSN to enable crash reporting
-  debug: false,
-});
 
 // Suppress the CSP warning in development
 process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
