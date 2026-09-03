@@ -40,7 +40,8 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "artifactName": "UVR-Launcher-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -48,7 +49,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "UVR Launcher",
-      "uninstallDisplayName": "UVR Launcher"
+      "uninstallDisplayName": "UVR Launcher",
+      "artifactName": "UVR-Launcher-Setup-${version}.${ext}"
     },
     "mac": {
       "target": "dmg",
